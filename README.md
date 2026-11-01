@@ -18,6 +18,8 @@ Derived from [`uefi-evb10`](https://github.com/Ken-u/uefi-evb10).
 | `UniXNUOrangePi5/Library/RockchipPlatformLib` | Copy of upstream's Orange Pi 5 library; only `vdd_gpu_s0` differs (`GPU_RAIL_UV`, 750 mV) |
 | `UniXNUOrangePi5/BootWdt` | Hardware watchdog safety net (the board has no remote power switch) |
 | `build.sh` | Builds the firmware and packs the NOR image |
+| `tools/board/` | Board tools: `make-bundle.sh` (payload and everything for the board in one directory), `nvme-install.py` (GPT, ESP and root image onto the NVMe drive, with read-back), `spi-flash.sh` (SPI NOR with backup), `capture.sh` (serial log with times), `patch-payload-toml.py` |
+| `docs/first-boot.md` | What to connect, how to write the drive and the flash, what the first log should show |
 
 There is no RAM-disk driver here: the payload is the ESP of the NVMe drive in the M.2 slot, which the firmware's
 NvmExpressDxe, PartitionDxe and FAT driver expose like any other file system.
@@ -38,7 +40,8 @@ required for bring-up: the serial log depends on it.
 ## Status
 
 Builds on the host (modules present in the firmware volume: Vop2Dxe, DwHdmiQpLib, NvmExpressDxe, UniXNU,
-UniXNUDxe, DarwinBoot, UniXNUBootWdtDxe). **Not yet run on a board.**
+UniXNUDxe, DarwinBoot, UniXNUBootWdtDxe). The board tools ran on the host against a file-backed 128 GB image (`nvme-install.py --selftest`
+and a full install with read-back). **Not yet run on a board.**
 
 ## License
 
