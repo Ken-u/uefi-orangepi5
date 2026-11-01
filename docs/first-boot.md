@@ -80,6 +80,9 @@ uses the same procedure with its own Maskrom button. The loader that a PC in Mas
 `out/bundle/maskrom/rk3588_loader_v1.24.114.bin` (`tools/board/make-loader.sh`: rkbin's `boot_merger` over `RKBOOT/RK3588MINIALL.ini`,
 DDR v1.24 + usbplug v1.11 + SPL v1.14; built on the build host, never tried on this board). With RKDevTool: load that file as the
 loader, then write `nor.img` at address 0; with `rkdeveloptool`: `db <loader>`, then `wl 0 nor.img`.
+The board host has Rockchip's `upgrade_tool` (`/usr/bin/upgrade_tool`) but no `rkdeveloptool`; the build host has neither. `upgrade_tool`
+has the same `db` / `wl` commands, but whether it writes the SPI NOR of this board was not checked. The USB-C port of the board has to
+be connected to that machine for either.
 
 If the new firmware does not come up, the way back is `flashcp -v spi-backup/spi-*.bin /dev/mtdN` from a Linux that still boots (SD
 card; a bootable SPI image takes precedence over the SD card, so this needs the Maskrom button or the recovery boot option of the
