@@ -18,7 +18,7 @@ Derived from [`uefi-evb10`](https://github.com/Ken-u/uefi-evb10).
 | `UniXNUOrangePi5/Library/RockchipPlatformLib` | Copy of upstream's Orange Pi 5 library; only `vdd_gpu_s0` differs (`GPU_RAIL_UV`, 750 mV) |
 | `UniXNUOrangePi5/BootWdt` | Hardware watchdog safety net (the board has no remote power switch) |
 | `build.sh` | Builds the firmware and packs the NOR image |
-| `tools/board/` | Board tools: `make-bundle.sh` (payload and everything for the board in one directory), `nvme-install.py` (GPT, ESP and root image onto the NVMe drive, with read-back), `spi-flash.sh` (SPI NOR with backup), `capture.sh` and `capture-remote.sh` (serial log with times, locally or through the board host), `patch-payload-toml.py` |
+| `tools/board/` | Board tools: `make-bundle.sh` (payload and everything for the board in one directory), `nvme-install.py` (GPT, ESP and root image onto the NVMe drive, with read-back), `spi-flash.sh` (SPI NOR with backup), `make-loader.sh` (Maskrom loader from rkbin), `capture.sh` and `capture-remote.sh` (serial log with times, locally or through the board host), `patch-payload-toml.py` |
 | `docs/first-boot.md` | What to connect, how to write the drive and the flash, what the first log should show |
 
 There is no RAM-disk driver here: the payload is the ESP of the NVMe drive in the M.2 slot, which the firmware's

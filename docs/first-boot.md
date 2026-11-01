@@ -32,7 +32,8 @@ cd ../uefi-orangepi5 && REBUILD=1 tools/board/make-bundle.sh                    
 ```
 
 `out/bundle` then holds `nor.img` (firmware), `esp.img` (payload volume), `userdata-root.img` (the 17.7.11 root image, 9.4 GB),
-`layout.json`, `SHA256SUMS`, `nvme-install.py` and `spi-flash.sh`. The root image is the one of the EVB10 port (same IPSW, board
+`layout.json`, `SHA256SUMS`, `nvme-install.py`, `spi-flash.sh`, `esp-files/` (the ESP's files, for a USB stick) and
+`maskrom/` (the loader for a PC in Maskrom mode; both are outside `SHA256SUMS`). The root image is the one of the EVB10 port (same IPSW, board
 independent); `ROOT_IMAGE` in `.env` names it, or build one with `unixnu build userdata --ipsw ...`.
 
 Host checks that ran (build host, see the commit messages for the revisions): `nvme-install.py --selftest` with five mutants of
@@ -75,7 +76,10 @@ sudo WRITE=1 ./spi-flash.sh .         # backup to ../spi-backup/, flashcp (erase
 
 `/proc/mtd` must list the flash (16 MiB on the Orange Pi 5). If it does not, the Linux in use has not enabled it: use the Maskrom
 way of the Rock 5 low-level documentation (<https://docs.radxa.com/en/rock5/lowlevel-development/bootloader_spi_flash>), the Orange Pi 5
-uses the same procedure with its own Maskrom button; the SPL loader is in `edk2-rk3588` (rkbin).
+uses the same procedure with its own Maskrom button. The loader that a PC in Maskrom mode needs first is
+`out/bundle/maskrom/rk3588_loader_v1.24.114.bin` (`tools/board/make-loader.sh`: rkbin's `boot_merger` over `RKBOOT/RK3588MINIALL.ini`,
+DDR v1.24 + usbplug v1.11 + SPL v1.14; built on the build host, never tried on this board). With RKDevTool: load that file as the
+loader, then write `nor.img` at address 0; with `rkdeveloptool`: `db <loader>`, then `wl 0 nor.img`.
 
 If the new firmware does not come up, the way back is `flashcp -v spi-backup/spi-*.bin /dev/mtdN` from a Linux that still boots (SD
 card; a bootable SPI image takes precedence over the SD card, so this needs the Maskrom button or the recovery boot option of the
