@@ -84,8 +84,9 @@ firmware, see the Recovery section of the edk2-rk3588 README: F4 at the splash s
 ## 5. First power-on
 
 1. Power off. Connect the serial adapter, the HDMI monitor, keep the NVMe in.
-2. On the machine with the adapter: `tools/board/capture.sh m0 300` (log in `runs/m0.ts` with times, `runs/m0.raw` as received). Start it
-   before the power goes on.
+2. On the machine with the adapter: `tools/board/capture.sh m0 300` (log in `runs/m0.ts` with times, `runs/m0.raw` as received), or from the
+   build host when the adapter is on the board host (`BOARD_HOST` in `.env`): `tools/board/capture-remote.sh m0 300`, which copies the log back.
+   Start it before the power goes on.
 3. Plug the power in. For the very first run press a key when the UniXNU menu appears and choose `xnu-probe` (see step 6); otherwise the menu starts `xnu` after 3 seconds.
 
 On HDMI only the firmware's own screens appear in this build (logo, then the menu). The kernel has no display driver yet: **its output
