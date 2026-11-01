@@ -55,6 +55,11 @@ echo "== bundle"
 NOR_ARG=()
 if [ -f "$NOR" ]; then NOR_ARG=(--nor "$NOR"); else echo "   (no firmware image $NOR: the bundle has no nor.img)"; fi
 python3 "$HERE/make-bundle.py" "$OUT" --device-repo "$DEVICE" --payload "$PAYLOAD" --root "$ROOT_IMAGE" ${NOR_ARG[@]+"${NOR_ARG[@]}"}
+echo "== the payload's files for a USB stick (updating the ESP from the UEFI shell, no Linux needed)"
+rm -rf "$OUT/esp-files"
+mkdir -p "$OUT/esp-files"
+"${MTOOLS_BIN:+$MTOOLS_BIN/}mcopy" -s -p -i "$PAYLOAD" ::/EFI "$OUT/esp-files/"
+(cd "$OUT/esp-files" && find . -type f | sort | while read -r f; do printf '   %s  %s\n' "$(stat -c %s "$f")" "$f"; done)
 echo "== kernel arguments of this payload:"
 M="${MTOOLS_BIN:+$MTOOLS_BIN/}mtype"
 "$M" -i "$PAYLOAD" ::/EFI/UniXNU/unixnu.toml | sed -n 's/^args = /   /p'
