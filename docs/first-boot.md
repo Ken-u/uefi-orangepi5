@@ -86,7 +86,7 @@ firmware, see the Recovery section of the edk2-rk3588 README: F4 at the splash s
 1. Power off. Connect the serial adapter, the HDMI monitor, keep the NVMe in.
 2. On the machine with the adapter: `tools/board/capture.sh m0 300` (log in `runs/m0.ts` with times, `runs/m0.raw` as received). Start it
    before the power goes on.
-3. Plug the power in. Do not press keys; the UniXNU menu starts `xnu` after 3 seconds.
+3. Plug the power in. For the very first run press a key when the UniXNU menu appears and choose `xnu-probe` (see step 6); otherwise the menu starts `xnu` after 3 seconds.
 
 On HDMI only the firmware's own screens appear in this build (logo, then the menu). The kernel has no display driver yet: **its output
 is on the serial port only**. A black monitor after the menu is expected.
@@ -107,15 +107,20 @@ Search with `rg -n 'PATTERN' runs/m0.ts`.
 | Data | `data: window lba 130547712..134744063 ... formatting`, `formatted the Data window`, `Data (on the drive) settled` (first boot formats; later boots print `header: ... formatted 1 times` and keep it) | `no persistent Data volume`: the reason is the line before; the RAM disk is used instead, nothing is lost |
 | Userland | `launchd`, about a hundred processes after roughly 100 seconds, `watchdogd` | a panic: the text before the restart |
 
-Boot arguments for a run (`EXTRA_KERNEL_ARGS="..." REBUILD=1 tools/board/make-bundle.sh`, then write the ESP):
+The menu of the payload has four boot entries (any key stops the 3 s countdown; Up/Down and Enter on the serial console):
 
-| Argument | Effect |
-| --- | --- |
-| `nvme=1` | probe only: the PCIe and NVMe lines, GPT, probe; nothing published, nothing written. The safest first run |
-| `nvme-probe=4096` | blocks of `userdata` to double-read (default 1024) |
-| `nvme-data-persist=0` | the Data volume stays in RAM (the drive is only read) |
-| `nvme-data-reset=1` | format the Data window again |
-| `wdt-kick=330` | feed the watchdog for 330 s only, to see the reset path early |
+| Entry | Boot arguments differ from the default by | Use |
+| --- | --- | --- |
+| `xnu` (default) | | the normal run: root and Data from the drive |
+| `xnu-hdmi` | `vc_mirror=1` | the kernel log is drawn on the HDMI frame buffer as well as the serial port (the frame buffer is the GOP one; not tried) |
+| `xnu-probe` | `nvme=1 nvme-probe=4096` | find and read the drive, publish nothing; the kernel then waits for a root and restarts. The safest first run: it never writes |
+| `xnu-ramdata` | `nvme-data-persist=0` | the Data volume lives in RAM; the drive is only read |
+
+`Restart` is the last entry; there is no power-off entry (it would cut the supply for good, see `patch-payload-toml.py`).
+
+Other arguments for a run (`EXTRA_KERNEL_ARGS="..." REBUILD=1 tools/board/make-bundle.sh`, then write the ESP): `nvme-probe=N` (blocks of
+`userdata` to double-read, default 1024), `nvme-data-reset=1` (format the Data window again), `wdt-kick=330` (feed the watchdog for 330 s
+only, to see the reset path early).
 
 ## 7. After the first log
 
