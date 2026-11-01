@@ -60,6 +60,8 @@ rm -rf "$OUT/esp-files"
 mkdir -p "$OUT/esp-files"
 "${MTOOLS_BIN:+$MTOOLS_BIN/}mcopy" -s -p -i "$PAYLOAD" ::/EFI "$OUT/esp-files/"
 (cd "$OUT/esp-files" && find . -type f | sort | while read -r f; do printf '   %s  %s\n' "$(stat -c %s "$f")" "$f"; done)
+echo "== Maskrom loader (the way back from a PC when the firmware does not come up)"
+"$HERE/make-loader.sh" "$OUT/maskrom" || echo "   (no loader: Maskrom recovery needs one, see docs/first-boot.md)"
 echo "== kernel arguments of this payload:"
 M="${MTOOLS_BIN:+$MTOOLS_BIN/}mtype"
 "$M" -i "$PAYLOAD" ::/EFI/UniXNU/unixnu.toml | sed -n 's/^args = /   /p'
