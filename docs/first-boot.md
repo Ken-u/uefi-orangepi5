@@ -135,5 +135,15 @@ Then record the observations in `porting.toml` of `UniXNU-orangepi5` with the lo
 
 ## Updating the payload without Linux
 
-The firmware's boot manager offers the UEFI shell (`ESC` at the splash, Boot Manager): a USB stick with a newer
-`kernel.macho` can be copied over the ESP there (`cp fs1:\kernel.macho fs0:\EFI\UniXNU\Payloads\`). Not tried on this build.
+`out/bundle/esp-files/EFI/UniXNU/` holds the same files as the ESP of `esp.img` (`unixnu.toml`, `Payloads/kernel.macho`, the ADT,
+the trust cache, the Data seed). To replace them on the board without any Linux:
+
+1. Copy the `EFI` directory of `esp-files` to the root of a FAT32 USB stick (`cp -r out/bundle/esp-files/EFI /mnt/stick/`).
+2. Power on, press `F1` at the splash (UEFI shell; the firmware image has it, `Shell` is in `FV/Guid.xref` of the build).
+3. `map -r`: the line whose device path shows `Pci(...)/NVMe(...)` is the ESP, the one with `USB(...)` is the stick. `ls fsN:\EFI\UniXNU`
+   on both to be sure.
+4. `cp -r fs1:\EFI\UniXNU\* fs0:\EFI\UniXNU\` (contents into the existing directory; adjust the numbers), `ls -l fs0:\EFI\UniXNU\Payloads`
+   to compare sizes, then **take the stick out** (UniXNU reads the first volume that has a `unixnu.toml`, and which one that is
+   depends on the enumeration order) and `reset`.
+
+Not tried on this board. If `cp` is refused for the 51 MB kernel, copy `Payloads\kernel.macho` alone first.
