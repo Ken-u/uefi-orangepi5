@@ -1,0 +1,14 @@
+# Machine-specific paths, hosts and accounts
+.env
+# Generated
+/build/
+/out/
+/upstream
+/artifacts/
+/runs/
+*.o
+*.elf
+*.log
+*.ts
+*.raw
+__pycache__/
