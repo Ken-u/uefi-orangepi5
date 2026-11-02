@@ -94,7 +94,7 @@ firmware, see the Recovery section of the edk2-rk3588 README: F4 at the splash s
 2. On the machine with the adapter: `tools/board/capture.sh m0 300` (log in `runs/m0.ts` with times, `runs/m0.raw` as received), or from the
    build host when the adapter is on the board host (`BOARD_HOST` in `.env`): `tools/board/capture-remote.sh m0 300`, which copies the log back.
    Start it before the power goes on.
-3. Plug the power in. For the very first run press a key when the UniXNU menu appears and choose `xnu-probe` (see step 6); otherwise the menu starts `xnu` after 3 seconds.
+3. Plug the power in. The bundle's menu starts `xnu-probe` by itself after 10 seconds (it reads the drive and writes nothing, see step 6), so nothing has to be pressed for the first run. To start something else, press a key in the countdown and pick it (Up/Down, Enter on the serial console).
 
 On HDMI only the firmware's own screens appear in this build (logo, then the menu). The kernel has no display driver yet: **its output
 is on the serial port only**. A black monitor after the menu is expected.
@@ -115,13 +115,13 @@ Search with `rg -n 'PATTERN' runs/m0.ts`.
 | Data | `data: window lba 130547712..134744063 ... formatting`, `formatted the Data window`, `Data (on the drive) settled` (first boot formats; later boots print `header: ... formatted 1 times` and keep it) | `no persistent Data volume`: the reason is the line before; the RAM disk is used instead, nothing is lost |
 | Userland | `launchd`, about a hundred processes after roughly 100 seconds, `watchdogd` | a panic: the text before the restart |
 
-The menu of the payload has four boot entries (any key stops the 3 s countdown; Up/Down and Enter on the serial console):
+The menu of the payload has four boot entries (any key stops the countdown, 10 s in the bundle; Up/Down and Enter on the serial console). The bundle's default entry is `xnu-probe`; once the log is good, `DEFAULT_ENTRY=xnu MENU_TIMEOUT=3 tools/board/make-bundle.sh` makes `xnu` the default and the new `esp-files/` go onto the ESP as described at the end of this document:
 
 | Entry | Boot arguments differ from the default by | Use |
 | --- | --- | --- |
-| `xnu` (default) | | the normal run: root and Data from the drive |
+| `xnu` | | the normal run: root and Data from the drive (writes the Data window of the drive) |
 | `xnu-hdmi` | `vc_mirror=1` | the kernel log is drawn on the HDMI frame buffer as well as the serial port (the frame buffer is the GOP one; not tried) |
-| `xnu-probe` | `nvme=1 nvme-probe=4096` | find and read the drive, publish nothing; the kernel then waits for a root and restarts. The safest first run: it never writes |
+| `xnu-probe` (default of the bundle) | `nvme=1 nvme-probe=4096` | find and read the drive, publish nothing; the kernel then waits for a root and restarts. The safest first run: it never writes |
 | `xnu-ramdata` | `nvme-data-persist=0` | the Data volume lives in RAM; the drive is only read |
 
 `Restart` is the last entry; there is no power-off entry (it would cut the supply for good, see `patch-payload-toml.py`).
