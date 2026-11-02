@@ -13,7 +13,11 @@ It also adds three entries after `xnu`, copies of it with other boot arguments, 
     xnu-probe     nvme=1 nvme-probe=4096    find and read the NVMe drive, publish nothing (the kernel then waits for a root and restarts)
     xnu-ramdata   nvme-data-persist=0       the Data volume lives in RAM; the drive is only read
 
-    patch-payload-toml.py PAYLOAD.img [--check]
+    patch-payload-toml.py PAYLOAD.img [--default ID] [--timeout SECONDS] [--check]
+
+--default / --timeout set the menu's default entry and countdown (`[boot] default`, `[boot] timeout`). `unixnu build payload` writes
+`xnu` and 3 seconds; the first run on a board wants `xnu-probe` and time to read the screen, because a missed key would start the
+normal boot (which writes the Data window of the drive).
 
 Uses mtools (MTOOLS_BIN names its directory when it is not on PATH). --check only reports (exit 1 while a shutdown entry is
 there); running it twice is harmless.
@@ -73,10 +77,49 @@ def add_variants(text):
     return head + "".join(blocks[:at] + added + blocks[at:]), len(added)
 
 
+def set_boot(text, default=None, timeout=None):
+    """Set `default` and `timeout` in the [boot] table (the text before the first [[entry]]). Returns the new text."""
+    head, sep, rest = text.partition("[[entry]]")
+    m = re.search(r"(?ms)^\[boot\]\s*$(.*?)(?=^\[|\Z)", head)
+    if not m:
+        raise SystemExit("no [boot] table in the payload's unixnu.toml")
+    body = m.group(1)
+    if default is not None:
+        ids = re.findall(r'(?m)^id\s*=\s*"([^"]+)"', rest)
+        if default not in ids:
+            raise SystemExit("no entry with id %s (entries: %s)" % (default, ", ".join(ids)))
+        body, n = re.subn(r'(?m)^default\s*=.*$', 'default = "%s"' % default, body)
+        if not n:
+            body = body.rstrip("\n") + '\ndefault = "%s"\n' % default
+    if timeout is not None:
+        body, n = re.subn(r"(?m)^timeout\s*=.*$", "timeout = %d" % timeout, body)
+        if not n:
+            body = body.rstrip("\n") + "\ntimeout = %d\n" % timeout
+    return head[:m.start(1)] + body + head[m.end(1):] + sep + rest
+
+
+def boot_table(text):
+    head = text.partition("[[entry]]")[0]
+    m = re.search(r"(?ms)^\[boot\]\s*$(.*?)(?=^\[|\Z)", head)
+    body = m.group(1) if m else ""
+    d = re.search(r'(?m)^default\s*=\s*"([^"]*)"', body)
+    t = re.search(r"(?m)^timeout\s*=\s*(\d+)", body)
+    return (d.group(1) if d else None), (int(t.group(1)) if t else None)
+
+
 def strip_shutdown(text):
     head, *blocks = re.split(r"(?m)^(?=\[\[entry\]\])", text)
     kept = [b for b in blocks if not re.search(r'(?m)^\s*action\s*=\s*"shutdown"\s*$', b)]
     return head + "".join(kept), len(blocks) - len(kept)
+
+
+def option(argv, name):
+    if name in argv:
+        index = argv.index(name)
+        if index + 1 >= len(argv):
+            raise SystemExit("%s needs a value" % name)
+        return argv[index + 1]
+    return None
 
 
 def main():
@@ -85,14 +128,25 @@ def main():
         return 2
     image = sys.argv[1]
     check = "--check" in sys.argv[2:]
+    want_default = option(sys.argv, "--default")
+    want_timeout = option(sys.argv, "--timeout")
+    want_timeout = int(want_timeout) if want_timeout is not None else None
     text = mt("mtype", "-i", image, TOML, capture_output=True).stdout.decode()
     new, dropped = strip_shutdown(text)
     if check:
         missing = [v[0] for v in VARIANTS if 'id = "%s"' % v[0] not in text]
-        print("a shutdown entry is still there" if dropped else "ok: no shutdown entry" + ("; missing variants: %s" % ", ".join(missing) if missing else ""))
-        return 1 if dropped or missing else 0
+        default, timeout = boot_table(text)
+        wrong = []
+        if want_default is not None and default != want_default:
+            wrong.append("default is %s, wanted %s" % (default, want_default))
+        if want_timeout is not None and timeout != want_timeout:
+            wrong.append("timeout is %s, wanted %s" % (timeout, want_timeout))
+        print("a shutdown entry is still there" if dropped else "ok: no shutdown entry" + ("; missing variants: %s" % ", ".join(missing) if missing else "")
+              + ("; %s" % "; ".join(wrong) if wrong else "") + "; menu default %s, countdown %s s" % (default, timeout))
+        return 1 if dropped or missing or wrong else 0
     new, added = add_variants(new)
-    if not dropped and not added:
+    new = set_boot(new, want_default, want_timeout)
+    if new == text:
         print("ok: no shutdown entry, variants present, nothing to change")
         return 0
     with tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False) as handle:
@@ -104,7 +158,9 @@ def main():
         os.unlink(name)
     after = mt("mtype", "-i", image, TOML, capture_output=True).stdout.decode()
     assert "shutdown" not in after, "the shutdown entry survived the rewrite"
-    print("ok: dropped %d shutdown entry, added %d variants; entries: %s" % (dropped, added, ", ".join(re.findall(r'(?m)^id\s*=\s*"([^"]+)"', after))))
+    default, timeout = boot_table(after)
+    print("ok: dropped %d shutdown entry, added %d variants; entries: %s; menu default %s, countdown %s s"
+          % (dropped, added, ", ".join(re.findall(r'(?m)^id\s*=\s*"([^"]+)"', after)), default, timeout))
     return 0
 
 

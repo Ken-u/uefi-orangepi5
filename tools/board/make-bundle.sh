@@ -5,6 +5,7 @@
 #   REBUILD=1 tools/board/make-bundle.sh             # run `unixnu build payload` first (about half a minute)
 #   REBUILD=1 EXTRA_KERNEL_ARGS="nvme=1 wdt-kick=330" tools/board/make-bundle.sh
 #
+# DEFAULT_ENTRY / MENU_TIMEOUT: the menu entry that starts by itself and after how many seconds (default xnu-probe, 10).
 # EXTRA_KERNEL_ARGS (NAME=VALUE, space separated) replaces or adds boot arguments for this payload only; board.toml stays as it is.
 # Examples: nvme=1 (probe the drive, publish nothing), nvme-probe=4096, nvme-data-reset=1, nvme-data-persist=0 (Data in RAM), vc_mirror=1.
 #
@@ -23,6 +24,10 @@ NOR="${NOR:-$ROOT/out/RK3588_NOR_FLASH-unixnu-orangepi5.img}"
 OUT="${OUT:-$ROOT/out/bundle}"
 TRUST_CACHE="${TRUST_CACHE-$ART/trust/original-static-system.bundle}"
 DATA_MIB="${DATA_MIB:-2048}"
+# The menu starts DEFAULT_ENTRY after MENU_TIMEOUT seconds. The default is the probe (reads the drive, writes nothing) with time to read
+# the screen: a missed key must not start the normal boot on a board that has never run. Once the log is good: DEFAULT_ENTRY=xnu MENU_TIMEOUT=3.
+DEFAULT_ENTRY="${DEFAULT_ENTRY:-xnu-probe}"
+MENU_TIMEOUT="${MENU_TIMEOUT:-10}"
 DATA_SEED="${DATA_SEED-$ART/data/owner-data-$DATA_MIB.trim.img}"
 
 if [ "${REBUILD:-0}" = 1 ]; then
@@ -47,9 +52,9 @@ if [ "${REBUILD:-0}" = 1 ]; then
 fi
 
 [ -f "$PAYLOAD" ] || { echo "error: no payload $PAYLOAD (REBUILD=1 builds it)" >&2; exit 1; }
-echo "== the payload's menu: no power-off entry"
-python3 "$HERE/patch-payload-toml.py" "$PAYLOAD"
-python3 "$HERE/patch-payload-toml.py" "$PAYLOAD" --check
+echo "== the payload's menu: no power-off entry, default entry $DEFAULT_ENTRY, countdown $MENU_TIMEOUT s"
+python3 "$HERE/patch-payload-toml.py" "$PAYLOAD" --default "$DEFAULT_ENTRY" --timeout "$MENU_TIMEOUT"
+python3 "$HERE/patch-payload-toml.py" "$PAYLOAD" --default "$DEFAULT_ENTRY" --timeout "$MENU_TIMEOUT" --check
 
 echo "== bundle"
 NOR_ARG=()
