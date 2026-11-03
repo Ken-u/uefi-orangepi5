@@ -154,8 +154,13 @@ runs the text); `--table-end 0` writes mkimage's layout for a U-Boot that wants 
 2 `xnu-hdmi`, 3 `xnu-probe`, 4 `xnu-ramdata`), Up/Down and Enter or space also work. From the U-Boot prompt the board restarts with `reset`
 (typed on the serial console; there is no reset controller on this board), after which U-Boot runs `boot.scr` again.
 
-On HDMI only the firmware's own screens appear in this build (logo, then the menu). The kernel has no display driver yet: **its output
-is on the serial port only**. A black monitor after the menu is expected.
+On HDMI the firmware's screens appear (logo, then the menu). The kernel has no display driver yet: **its output is on the serial port**,
+and the `xnu-hdmi` entry (`vc_mirror=1`) copies the kernel log to the GOP frame buffer as well (seen on the monitor on 2026-11-03: the log scrolls). With `xnu` or `xnu-probe` the monitor goes
+black after the menu, as expected.
+
+The USB serial adapter drops off the bus when the board resets (watchdog or panic) and returns under another name (`ttyUSB0` to
+`ttyUSB1`). Put `/dev/serial/by-id/...` in `.env` as `BOARD_SERIAL_DEV`; `serial-capture.py` stops with `# device closed` when the line
+goes away, so a capture that falls silent in the middle is not a quiet board.
 
 ## 5. What the log should show
 
