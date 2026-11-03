@@ -4,6 +4,9 @@
 #   ./build.sh                 # DEBUG（板上调试必须用 DEBUG，串口日志靠它）
 #   ./build.sh -b RELEASE      # RELEASE
 #   ./build.sh -n              # 只打包 NOR 镜像，不重编
+#   ./build.sh -L              # 「启动器版」固件卷：U-Boot 在 SPI 里、edk2 由 stub 在内存里拉起（tools/stub）。
+#                              # 关掉 SPI NOR 变量存储（RK_NOR_FLASH_ENABLE=FALSE），edk2 不会碰放着 U-Boot 的 SPI；
+#                              # 只产出 out/launcher/ 下的 FV 和 EFI 模块，不打 NOR 镜像；tools/stub/build.sh 再把 FV 包成 uefi-launcher.img。
 #   GPU_RAIL_UV=850000 ./build.sh   # GPU 供电 0.85 V（微伏；默认 750000 = 0.75 V；upstream 的 Orange Pi 5 固件用 0.85 V）
 #
 # 不修改 upstream（edk2-rk3588）里的任何文件：平台 DSC/FDF 片段都在 UniXNUOrangePi5/ 里，
@@ -23,18 +26,30 @@ ln -sfn "$UPSTREAM" "$ROOT/upstream"
 
 TARGET=DEBUG
 PACK_ONLY=0
+LAUNCHER=0
 PLATFORM=orangepi5
 JOBS="${JOBS:-$(nproc)}"
 
-while getopts "b:p:nh" opt; do
+while getopts "b:p:nLh" opt; do
   case $opt in
     b) TARGET=$OPTARG ;;
     p) PLATFORM=$OPTARG ;;
     n) PACK_ONLY=1 ;;
-    h) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    L) LAUNCHER=1 ;;
+    h) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) exit 1 ;;
   esac
 done
+
+if [ "$LAUNCHER" -eq 1 ]; then
+  # 另一棵构建树和输出目录：不碰 NOR 版的 build/ 与 out/。
+  BUILD_ROOT="${BUILD_ROOT_LAUNCHER:-$ROOT/build-launcher}"
+  OUT="${OUT_LAUNCHER:-$ROOT/out/launcher}"
+  EXTRA_DEFINES=(-D RK_NOR_FLASH_ENABLE=FALSE)
+else
+  EXTRA_DEFINES=()
+fi
+mkdir -p "$OUT"
 
 case "$PLATFORM" in
   orangepi5)
@@ -104,10 +119,23 @@ if [ "$PACK_ONLY" -eq 0 ]; then
     -n "$JOBS" \
     -D NETWORK_ALLOW_HTTP_CONNECTIONS=TRUE \
     -D GPU_RAIL_UV="${GPU_RAIL_UV:-750000}" \
+    ${EXTRA_DEFINES[@]+"${EXTRA_DEFINES[@]}"} \
     --pcd gRockchipTokenSpaceGuid.PcdFitImageFlashAddress=0x100000
 fi
 
 FV_DIR="$BUILD_ROOT/Build/$PLAT_DIR/${TARGET}_CLANGDWARF/FV"
+if [ "$LAUNCHER" -eq 1 ]; then
+  [ -f "$FV_DIR/BL33_AP_UEFI.Fv" ] || { echo "error: 没有生成 $FV_DIR/BL33_AP_UEFI.Fv" >&2; exit 1; }
+  cp "$FV_DIR/BL33_AP_UEFI.Fv" "$OUT/BL33_AP_UEFI${IMG_TAG}-launcher.Fv"
+  for m in UniXNU UniXNUDxe DarwinBoot; do
+    found=$(find "$BUILD_ROOT/Build/$PLAT_DIR/${TARGET}_CLANGDWARF" -name "$m.efi" | head -1)
+    [ -n "$found" ] && cp "$found" "$OUT/$m.efi"
+  done
+  echo
+  echo "== 完成（启动器版，没有 NOR 镜像）"
+  ls -la "$OUT"
+  exit 0
+fi
 [ -f "$FV_DIR/NOR_FLASH_IMAGE.fd" ] || { echo "error: 没有生成 $FV_DIR/NOR_FLASH_IMAGE.fd" >&2; exit 1; }
 
 # ---------------------------------------------------------------- 打包

@@ -12,3 +12,4 @@
 *.ts
 *.raw
 __pycache__/
+/build-launcher/
