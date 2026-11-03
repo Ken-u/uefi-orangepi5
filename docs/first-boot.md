@@ -272,7 +272,9 @@ with `scp`; `SERIAL_DEV` is the by-id path, `BOARD_SERIAL_DEV` in `.env`).
    The last number must equal the one of the first step; `fatload` must print the same size.
 4. `run bootcmd` boots from the ESP again (no new banner is printed before the firmware's own).
 
-Two things learned with the 51 MB kernel (2026-11-03, display build):
+`tools/board/esp-put.sh LOCALFILE ESPPATH` does all of this for one file (pieces, prompt polling, the safe addresses, the read back and the
+`VERIFIED` line; `--dry-run` prints the plan). Its dry run and the pieces it is made of were tried on the board; the first complete live run is
+still to be made. Two things learned with the 51 MB kernel (2026-11-03, display build):
 
 - Do not read or `crc32` a RAM range that reaches 0x8400000 (protected memory, the trusted firmware's): `crc32 0x6000000 0x30e9000` ended in
   `"Synchronous Abort" handler, esr 0x96000010, far 0x8400000`, U-Boot printed "Resetting CPU ..." and "### ERROR ### Please RESET the board ###"
