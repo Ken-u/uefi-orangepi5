@@ -6,116 +6,167 @@ says which log line settles it.
 
 The board in this plan: Orange Pi 5, 8 GiB LPDDR4x, a 128 GB (about 119 GiB) NVMe drive in the M.2 M-key slot, an HDMI monitor.
 
-## 0. What is needed
+## Two ways to start the firmware
+
+| | U-Boot in the SPI NOR (sections 1 to 6) | edk2 in the SPI NOR (appendix) |
+| --- | --- | --- |
+| Needs | A U-Boot in the SPI NOR that has NVMe, `ums`, `booti` and distro boot. A Mac (or any machine with `dd`) on the board's USB-C OTG port | An SD card with Linux on the board, or a PC in Maskrom mode |
+| SPI NOR | Not written by anything here. The firmware is started from the NVMe drive | Overwritten with `nor.img` |
+| How the firmware starts | U-Boot runs `boot.scr` from the ESP, which loads `uefi-launcher.img` (a small stub with the firmware volume inside) and `booti`s it. The stub moves the volume to 0x200000 and jumps in, which is what TF-A does for BL33 in the normal flash flow | BootROM, SPL, TF-A, edk2 |
+| edk2 variables | Not stored (the launcher volume is built without the SPI NOR variable store, `./build.sh -L`, so edk2 never writes the SPI that holds U-Boot) | In the SPI NOR |
+
+The first is the plan: the board has no SD card, the NVMe drive is the only storage, and U-Boot (with a working `ums`) is already
+in the SPI NOR.
+
+## 1. What is needed
 
 | | |
 | --- | --- |
-| Serial | A 3.3 V USB serial adapter that supports **1 500 000 baud** (FT232R/FT232H, CP2102N) on the 3-pin debug header: board TX to adapter RX, GND to GND, **do not connect 3.3 V**. Check the silkscreen for the pin order. 8N1, no flow control |
-| Linux on the board | Orange Pi OS (or any Linux) booted from an **SD card**, with network or a USB disk to bring the bundle over. It must not be booted from the NVMe drive: the installer refuses a drive with a mounted partition |
-| `mtd-utils` | `apt install mtd-utils` on that Linux (`flashcp`), only for writing the SPI NOR from Linux |
+| Serial | A 3.3 V USB serial adapter that supports **1 500 000 baud** (FT232R/FT232H, CP2102N) on the 3-pin debug header: board TX to adapter RX, GND to GND, **do not connect 3.3 V**. Check the silkscreen for the pin order. 8N1, no flow control. U-Boot's console is on this UART, and so is the launcher's and the firmware's |
+| U-Boot | In the SPI NOR; on the serial console `help` must list `nvme`, `ums`, `booti`, `load`, `source`. `printenv boot_targets` must contain `nvme` (distro boot, here `mmc1 mmc0 nvme scsi usb pxe dhcp spi`). Nothing in `mmc1`/`mmc0` may be bootable: no SD card |
+| A Mac | Connected to the USB port of the board that `ums` shows up on (the one the Mac saw the drive on when it was written the first time), only while `ums` runs; 10 GB free for the images; `rsync`, `shasum`, `dd` |
 | Display | HDMI monitor on the HDMI port of the board |
-| Power | The board's USB-C supply. There is no reset line and no power button: a hang ends in the watchdog reset, a hung firmware needs the plug pulled |
+| Power | The board's own supply. There is no reset line and no power button: a hang ends in the watchdog reset, a hung stub needs the plug pulled |
 
-A box of caveats before starting:
+Caveats before starting:
 
 - The NVMe drive is erased (GPT, ESP and the first 64 GiB). Take anything you want off it first.
-- The SPI NOR flash is overwritten. `spi-flash.sh` saves the old content first; keep that file (`spi-backup/`) somewhere that is not the board.
-- A 4096-byte-block NVMe drive is refused by the installer (the driver speaks 512-byte blocks). Most consumer drives are 512; `nvme id-ns /dev/nvme0n1 -H` tells.
+- A 4096-byte-block NVMe drive does not work (the driver speaks 512-byte blocks). Most consumer drives are 512.
 
-## 1. Build the bundle (build host)
+## 2. Build (build host)
 
 ```sh
 cd uefi-orangepi5
-./build.sh -b DEBUG                                   # firmware, if it is not built yet: out/RK3588_NOR_FLASH-unixnu-orangepi5.img
+./build.sh -b DEBUG -L                                 # launcher firmware volume: out/launcher/BL33_AP_UEFI-orangepi5-launcher.Fv
 cd ../UniXNU-orangepi5 && source ../host/env.sh && scripts/build-orangepi5-kernel.sh      # kernel, if not built yet
-cd ../uefi-orangepi5 && REBUILD=1 tools/board/make-bundle.sh                               # payload + bundle in out/bundle
+cd ../uefi-orangepi5 && REBUILD=1 tools/board/make-bundle.sh                               # payload + launcher into the ESP, bundle in out/bundle
+tools/board/make-disk-image.sh                                                             # out/disk: head.img, tail.img, esp.img, SHA256SUMS
 ```
 
-`out/bundle` then holds `nor.img` (firmware), `esp.img` (payload volume), `userdata-root.img` (the 17.7.11 root image, 9.4 GB),
-`layout.json`, `SHA256SUMS`, `nvme-install.py`, `spi-flash.sh`, `esp-files/` (the ESP's files, for a USB stick) and
-`maskrom/` (the loader for a PC in Maskrom mode; both are outside `SHA256SUMS`). The root image is the one of the EVB10 port (same IPSW, board
-independent); `ROOT_IMAGE` in `.env` names it, or build one with `unixnu build userdata --ipsw ...`.
+`make-bundle.sh` builds `out/launcher/uefi-launcher.img` (`tools/stub/build.sh`; the entry point of the volume is read from its reset
+vector, 0x1400) and `boot.scr` (`tools/board/boot.cmd` through `make-bootscr.py`) and copies both to the root of the ESP. `out/bundle/uboot/`
+has the same files for loading them by hand. `make-disk-image.sh` puts the bundle through `nvme-install.py` (the code that would write
+a real drive, with its read-back) into a sparse file the size of the drive and cuts out the parts a `dd` has to write:
+
+| File | Covers | Written at |
+| --- | --- | --- |
+| `head.img` (about 9.65 GB) | MBR, GPT, ESP, root image | the start of the drive |
+| `tail.img` (16 896 bytes) | the backup GPT | sector `size/512 - 33` (250069647 for 128035676160 bytes) |
+| `esp.img` (256 MiB) | the ESP alone, always the newest | 1 MiB (LBA 2048), after `head.img` and for every later update |
+
+`DISK_BYTES=N tools/board/make-disk-image.sh` for a drive of another size (the exact size U-Boot or macOS reports). The root image is
+the one of the EVB10 port (same IPSW, board independent); `ROOT_IMAGE` in `.env` names it, or build one with
+`unixnu build userdata --ipsw ...`.
 
 Host checks that ran (build host, see the commit messages for the revisions): `nvme-install.py --selftest` with five mutants of
-the GPT writer and the drive checks (all caught); a full install of this bundle into a 128 GB sparse file, read back and compared;
+the GPT writer and the drive checks (all caught); a full install of the bundle into a 128 GB sparse file, read back and compared;
 the GPT read with the driver's own reader (`package/Rk3588Nvme/tests/check-gpt-image.cpp`), with `fdisk` and `sfdisk --verify`;
-the payload's FAT volume read with mtools; the exported `pcie-nvme` node in the payload's device tree.
+the payload's FAT volume read with mtools and `fsck.vfat`; the exported `pcie-nvme` node in the payload's device tree;
+`boot.scr` byte for byte against `mkimage -T script`; the stub's instructions against the EVB10 stub that ran on a board (identical;
+only the strings and the `text_offset` field of the header differ).
 
-## 2. Copy it to the board
+## 3. Write the drive from the Mac (`ums`)
 
-```sh
-rsync -aL --partial --info=progress2 out/bundle/ USER@BOARD:~/unixnu-bundle/      # -L: the big files are symbolic links
+On the board's serial console (U-Boot prompt; press a key in the autoboot countdown):
+
+```
+nvme scan
+nvme info                    # the drive's size in blocks: 250069680 x 512 for the 128 GB drive
+ums 0 nvme 0                 # the drive is now a USB disk on the OTG port; Ctrl-C ends it
 ```
 
-No network on the board's Linux: `cp -L` the bundle to an ext4 or exFAT USB disk, or `rsync` through the board host (`-e "ssh -J HOST"`).
-On the board: `cd ~/unixnu-bundle && sha256sum -c SHA256SUMS` (about a minute).
-
-## 3. Write the NVMe drive
+On the Mac:
 
 ```sh
-sudo python3 nvme-install.py . --device /dev/nvme0n1                  # dry run: names the drive, shows the plan
-sudo python3 nvme-install.py . --device /dev/nvme0n1 --write --expect-bytes N     # N from the dry run
+rsync -aP --partial BUILDHOST:path/to/uefi-orangepi5/out/disk/ ~/unixnu-disk/ && cd ~/unixnu-disk && shasum -a 256 -c SHA256SUMS
+diskutil list                # find the new disk (about 128 GB); its number is N below. "unreadable disk, initialise?": click Ignore
+diskutil info /dev/diskN | grep -E 'Disk Size|Block Size'    # 128035676160 bytes, 512
 ```
 
-It writes GPT + ESP + root image, zeroes the header of the Data window and reads it all back with `O_DIRECT`; it ends with
-`OK: gpt, esp, root, data verified`. Layout: ESP LBA 2048 (256 MiB), `userdata` LBA 526336..134744063 (64 GiB; the root image at its
-start, the Data window of 2 GiB at its end).
-
-Later updates of the payload only (a new kernel): build the bundle again and write just the ESP, which takes seconds:
+macOS mounts the ESP as soon as a new GPT shows up and `dd` then fails with `Resource busy`: unmount before **each** command.
 
 ```sh
-sudo python3 nvme-install.py . --device /dev/nvme0n1 --parts esp --write --expect-bytes N
+diskutil unmountDisk /dev/diskN && sudo dd if=head.img of=/dev/rdiskN bs=4m              # Ctrl+T shows progress
+diskutil unmountDisk /dev/diskN && sudo dd if=tail.img of=/dev/rdiskN bs=512 seek=250069647
+diskutil unmountDisk /dev/diskN && sudo dd if=/dev/zero of=/dev/rdiskN bs=1m count=1 seek=63744   # header of the Data window
+diskutil unmountDisk /dev/diskN && sudo dd if=esp.img of=/dev/rdiskN bs=1m seek=1                  # the ESP is newer than the one in head.img
+diskutil unmountDisk /dev/diskN; sudo dd if=/dev/rdiskN bs=1m skip=1 count=256 | shasum -a 256   # equals the esp.img line of SHA256SUMS
 ```
 
-## 4. Write the SPI NOR
+`seek=250069647` and `seek=63744` are for the 128035676160-byte drive; `make-disk-image.sh` prints the numbers for the size it was given.
+Then `Ctrl-C` on the serial console to leave `ums`, and check the drive from U-Boot:
 
-```sh
-sudo ./spi-flash.sh .                 # dry run: finds the flash in /proc/mtd, checks nor.img
-sudo WRITE=1 ./spi-flash.sh .         # backup to ../spi-backup/, flashcp (erase, write, compare), compare again
+```
+nvme scan
+part list nvme 0             # 1 esp (LBA 2048..526335), 2 userdata (LBA 526336..134744063)
+ls nvme 0:1                  # boot.scr, uefi-launcher.img, EFI/
 ```
 
-`/proc/mtd` must list the flash (16 MiB on the Orange Pi 5). If it does not, the Linux in use has not enabled it: use the Maskrom
-way of the Rock 5 low-level documentation (<https://docs.radxa.com/en/rock5/lowlevel-development/bootloader_spi_flash>), the Orange Pi 5
-uses the same procedure with its own Maskrom button. The loader that a PC in Maskrom mode needs first is
-`out/bundle/maskrom/rk3588_loader_v1.24.114.bin` (`tools/board/make-loader.sh`: rkbin's `boot_merger` over `RKBOOT/RK3588MINIALL.ini`,
-DDR v1.24 + usbplug v1.11 + SPL v1.14; built on the build host, never tried on this board). With RKDevTool: load that file as the
-loader, then write `nor.img` at address 0; with `rkdeveloptool`: `db <loader>`, then `wl 0 nor.img`.
-The board host has Rockchip's `upgrade_tool` (`/usr/bin/upgrade_tool`) but no `rkdeveloptool`; the build host has neither. `upgrade_tool`
-has the same `db` / `wl` commands, but whether it writes the SPI NOR of this board was not checked. The USB-C port of the board has to
-be connected to that machine for either.
+Later updates of the payload (a new kernel): `REBUILD=1 tools/board/make-bundle.sh`, copy `out/disk/esp.img`, `ums`, and only the
+`esp.img` line above. It takes seconds and does not touch the root image or the Data volume.
 
-If the new firmware does not come up, the way back is `flashcp -v spi-backup/spi-*.bin /dev/mtdN` from a Linux that still boots (SD
-card; a bootable SPI image takes precedence over the SD card, so this needs the Maskrom button or the recovery boot option of the
-firmware, see the Recovery section of the edk2-rk3588 README: F4 at the splash screen, or Recovery button at power-on).
+## 4. First power-on
 
-## 5. First power-on
-
-1. Power off. Connect the serial adapter, the HDMI monitor, keep the NVMe in.
+1. Power off. Connect the serial adapter and the HDMI monitor, keep the NVMe in, no SD card.
 2. On the machine with the adapter: `tools/board/capture.sh m0 300` (log in `runs/m0.ts` with times, `runs/m0.raw` as received), or from the
    build host when the adapter is on the board host (`BOARD_HOST` in `.env`): `tools/board/capture-remote.sh m0 300`, which copies the log back.
    Start it before the power goes on.
-3. Plug the power in. The bundle's menu starts `xnu-probe` by itself after 10 seconds (it reads the drive and writes nothing, see step 6), so nothing has to be pressed for the first run. To start something else, press a key in the countdown and pick it (Up/Down, Enter on the serial console).
+3. Plug the power in and leave U-Boot alone. Distro boot looks at the first partition of each drive in `boot_targets`: no
+   `extlinux/extlinux.conf` there, then `boot.scr`, which is the launcher's. If U-Boot stopped at its prompt: `run bootcmd`.
+4. The bundle's menu starts `xnu-probe` by itself after 10 seconds (it reads the drive and writes nothing, see section 6), so nothing has
+   to be pressed for the first run. To start something else, press a key in the countdown and pick it (Up/Down, Enter on the serial console).
+
+The launcher's part of the log, in order:
+
+```
+UniXNU launcher: nvme 0:1                       from boot.scr
+5251560 bytes read in ... ms                    uefi-launcher.img loaded at 0xa000000
+## Booting kernel from Legacy Image ... / Starting kernel ...    (the wording depends on U-Boot)
+LAUNCHER: EL=2 copying the firmware volume to 0x200000
+LAUNCHER: DW WDT 0xfeaf0000 armed (TORR 0xf), UniXNUBootWdtDxe takes over feeding
+LAUNCHER: jumping to 0x200000 + 0x1400
+UEFI banner of the firmware ...
+```
+
+If it does not look like this:
+
+| What the log shows | Meaning and next step |
+| --- | --- |
+| U-Boot tries `mmc`, `nvme`, ..., ends at `pxe`/`dhcp` without `UniXNU launcher:` | `boot.scr` not found or the drive not scanned: at the prompt `nvme scan; ls nvme 0:1`. By hand: `load nvme 0:1 0xa000000 uefi-launcher.img` then `booti 0xa000000 - ${fdtcontroladdr}` |
+| `UniXNU launcher: no uefi-launcher.img` | the file is not on that partition: section 3 |
+| `booti` complains (`Bad Linux ARM64 Image magic`, overlaps, `Wrong Image Format`) | the load failed or the address is taken: send the lines. The image has the Linux arm64 header with `text_offset` 0xa000000 |
+| `Starting kernel ...`, nothing from `LAUNCHER:` | the stub did not run, or the UART is not 0xfeb50000 (UART2, what the debug header uses on this board). The stub only prints on that UART |
+| `LAUNCHER: EL=...` but no UEFI banner, the board resets after about 90 s | the watchdog fired: the firmware hung before DXE. The log up to the reset is what is needed |
+| UEFI banner, then a hang in PCIe or NVMe code | see the table of section 5 |
+
+Not known until a board runs it: that `booti` leaves the stub where it was loaded (the stub works from wherever it is, and
+`text_offset` makes a relocating `booti` put it at the same place); that U-Boot's device tree, which the stub hands to the firmware, is
+still intact when the firmware reads it (if not, `UNIXNURAMDISK: x0 ... is not a device tree` appears and nothing else changes: the
+payload comes from the ESP); that the firmware can bring the PCIe link up again after U-Boot has used the drive (the NVMe lines of
+section 5).
 
 On HDMI only the firmware's own screens appear in this build (logo, then the menu). The kernel has no display driver yet: **its output
 is on the serial port only**. A black monitor after the menu is expected.
 
-## 6. What the log should show
+## 5. What the log should show
 
 Search with `rg -n 'PATTERN' runs/m0.ts`.
 
 | Step | Lines | If it fails |
 | --- | --- | --- |
-| Firmware | DDR banner, `BL31`, UEFI banner `UniXNU` / `Orange Pi 5 (UniXNU)`, the UniXNU menu, `DARWINBOOT:` lines | Nothing on serial at all: wrong pins or baud (1500000); LED does not light: no firmware. Firmware ASSERT: send `runs/m0.ts` |
+| Firmware | the `LAUNCHER:` lines, UEFI banner `UniXNU` / `Orange Pi 5 (UniXNU)`, the UniXNU menu, `DARWINBOOT:` lines | Firmware ASSERT: send `runs/m0.ts` |
 | Memory | the UEFI memory map (DEBUG build) with a conventional range of at least 2 GiB | `Out of Resources` from DarwinBoot: lower `payload.adt.owned_memory_size` |
 | Kernel start | `NativeNvme: matched ...` | no line: the personality or the ADT node `pcie-nvme` is not there (`strings kernel.macho.adt`) |
-| PCIe | `pcie: LTSSM 0x11 (L0), root port link status ...: Gen2 x1`, then `pcie: 00:00.0 vendor ... class 0x10802`, `BAR0 ...` | LTSSM not L0: the firmware did not bring the link up (UEFI setup, Advanced, Rockchip platform configuration, PCIe/SATA/USB). `nothing answers at 00:00.0`: the controller address assumptions are wrong or no drive. `BAR0 ... lies in none of the windows`: the BAR is elsewhere than derived |
+| PCIe | `pcie: LTSSM 0x11 (L0), root port link status ...: Gen2 x1`, then `pcie: 00:00.0 vendor ... class 0x10802`, `BAR0 ...` | LTSSM not L0: the firmware did not bring the link up (UEFI setup, Advanced, Rockchip platform configuration, PCIe/SATA/USB; the firmware has to do it again after U-Boot). `nothing answers at 00:00.0`: the controller address assumptions are wrong or no drive. `BAR0 ... lies in none of the windows`: the BAR is elsewhere than derived |
 | NVMe | `NVMe 1.x ...`, `controller as the firmware left it: CC ... CSTS ...`, `namespace 1: N blocks of 2^9 bytes`, `queues granted: 1 submission, 1 completion` | a timeout at the first command: DMA window or BAR mapping; the lines before it show CAP/VS and the controller state |
 | GPT | `GPT disk ...`, `gpt[0] esp`, `gpt[1] userdata`, `probe 1024 blocks of userdata twice ... (stable)` | a CRC mismatch in the probe: DMA coherence (the cache handling) |
 | Root | `root image at block 526336: 2 windows`, `published OS`, `published SystemOS`, `all 2 root windows published` | `no SHNGROOT magic`: the root image is not where the GPT says |
 | Data | `data: window lba 130547712..134744063 ... formatting`, `formatted the Data window`, `Data (on the drive) settled` (first boot formats; later boots print `header: ... formatted 1 times` and keep it) | `no persistent Data volume`: the reason is the line before; the RAM disk is used instead, nothing is lost |
 | Userland | `launchd`, about a hundred processes after roughly 100 seconds, `watchdogd` | a panic: the text before the restart |
 
-The menu of the payload has four boot entries (any key stops the countdown, 10 s in the bundle; Up/Down and Enter on the serial console). The bundle's default entry is `xnu-probe`; once the log is good, `DEFAULT_ENTRY=xnu MENU_TIMEOUT=3 tools/board/make-bundle.sh` makes `xnu` the default and the new `esp-files/` go onto the ESP as described at the end of this document:
+## 6. Boot entries
+
+The menu of the payload has four boot entries (any key stops the countdown, 10 s in the bundle; Up/Down and Enter on the serial console). The bundle's default entry is `xnu-probe`; once the log is good, `DEFAULT_ENTRY=xnu MENU_TIMEOUT=3 tools/board/make-bundle.sh` makes `xnu` the default, and the new `out/disk/esp.img` is written as in section 3:
 
 | Entry | Boot arguments differ from the default by | Use |
 | --- | --- | --- |
@@ -140,7 +191,42 @@ What changes in the files, not in the kernel, once the log shows the real values
 
 Then record the observations in `porting.toml` of `UniXNU-orangepi5` with the log as evidence.
 
-## Updating the payload without Linux
+## Appendix: edk2 in the SPI NOR (SD card and Linux)
+
+The other way, for a board that has an SD card and no usable U-Boot: edk2 itself goes into the SPI NOR (`nor.img`, from `./build.sh` without
+`-L`) and starts at power-on. The NVMe drive is written from a Linux on the board (booted from the SD card, not from the NVMe drive: the
+installer refuses a drive with a mounted partition).
+
+```sh
+rsync -aL --partial --info=progress2 out/bundle/ USER@BOARD:~/unixnu-bundle/      # -L: the big files are symbolic links
+# on the board: cd ~/unixnu-bundle && sha256sum -c SHA256SUMS
+sudo python3 nvme-install.py . --device /dev/nvme0n1                  # dry run: names the drive, shows the plan
+sudo python3 nvme-install.py . --device /dev/nvme0n1 --write --expect-bytes N     # N from the dry run
+sudo python3 nvme-install.py . --device /dev/nvme0n1 --parts esp --write --expect-bytes N     # later: the ESP only
+sudo ./spi-flash.sh .                 # dry run: finds the flash in /proc/mtd, checks nor.img
+sudo WRITE=1 ./spi-flash.sh .         # backup to ../spi-backup/, flashcp (erase, write, compare), compare again
+```
+
+`mtd-utils` (`flashcp`) is needed for the last one, and `/proc/mtd` must list the flash (16 MiB on the Orange Pi 5). `spi-flash.sh`
+saves the old content first: keep that file somewhere that is not the board. The installer ends with `OK: gpt, esp, root, data verified`.
+
+If the Linux in use has not enabled the SPI flash, or the board has no SD card, use the Maskrom way of the Rock 5 low-level
+documentation (<https://docs.radxa.com/en/rock5/lowlevel-development/bootloader_spi_flash>); the Orange Pi 5 uses the same procedure with
+its own Maskrom button. The loader that a PC in Maskrom mode needs first is `out/bundle/maskrom/rk3588_loader_v1.24.114.bin`
+(`tools/board/make-loader.sh`: rkbin's `boot_merger` over `RKBOOT/RK3588MINIALL.ini`, DDR v1.24 + usbplug v1.11 + SPL v1.14; built on the
+build host, never tried on this board). With RKDevTool: load that file as the loader, then write `nor.img` at address 0; with
+`rkdeveloptool`: `db <loader>`, then `wl 0 nor.img`. The board host has Rockchip's `upgrade_tool` (`/usr/bin/upgrade_tool`) but no
+`rkdeveloptool`; the build host has neither. `upgrade_tool` has the same `db` / `wl` commands, but whether it writes the SPI NOR of this
+board was not checked. The USB-C port of the board has to be connected to that machine for either. The same loader is the way back for
+the U-Boot route if the SPI NOR ever has to be rewritten.
+
+If the new firmware does not come up, the way back is `flashcp -v spi-backup/spi-*.bin /dev/mtdN` from a Linux that still boots (SD
+card; a bootable SPI image takes precedence over the SD card, so this needs the Maskrom button or the recovery boot option of the
+firmware, see the Recovery section of the edk2-rk3588 README: F4 at the splash screen, or Recovery button at power-on).
+
+The first power-on and the log are as in sections 4 and 5, without the `LAUNCHER:` lines.
+
+### Updating the payload without Linux (edk2 in the SPI NOR)
 
 `out/bundle/esp-files/EFI/UniXNU/` holds the same files as the ESP of `esp.img` (`unixnu.toml`, `Payloads/kernel.macho`, the ADT,
 the trust cache, the Data seed). To replace them on the board without any Linux:
