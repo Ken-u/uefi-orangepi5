@@ -120,6 +120,12 @@
   # File name used for /dtb override lookups on the ESP; matches the blobs of upstream's Orange Pi 5.
   gRockchipTokenSpaceGuid.PcdDeviceTreeName|"rk3588s-orangepi-5"
 
+  # DxeCore loads an image at the address it was linked at when that is free (and from 1 MiB up) and only falls back to any address when it is
+  # not. The prebuilt Realtek UNDI driver (RtkUndiDxe, edk2-non-osi) is linked at 0x180000000 and sat in the middle of the 4 GiB above 4 GiB,
+  # cutting it into two runs of 2 GiB, which is all a kernel window can be taken from there. With this off every image goes where DxeCore puts
+  # boot-services memory (top down) and the bank stays whole.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdImageLargeAddressLoad|FALSE
+
   #
   # I2C (as upstream's Orange Pi 5)
   #
