@@ -9,6 +9,10 @@
 # EXTRA_KERNEL_ARGS (NAME=VALUE, space separated) replaces or adds boot arguments for this payload only; board.toml stays as it is.
 # Examples: nvme=1 (probe the drive, publish nothing), nvme-probe=4096, nvme-data-reset=1, nvme-data-persist=0 (Data in RAM), vc_mirror=1.
 #
+# The ESP also gets the launcher (uefi-launcher.img: stub plus the firmware volume from `./build.sh -L`, and boot.scr that starts it
+# from U-Boot), when out/launcher/BL33_AP_UEFI-orangepi5-launcher.Fv exists. out/disk/esp.img is the same ESP as a file of its own
+# for updating the ESP alone through U-Boot's `ums` (docs/first-boot.md).
+#
 # Needs (.env): UNIXNU, DEVICE_DIR, UNIQUE_CHIP_ID, ARTIFACTS, ROOT_IMAGE; UNIXNU_WRAP, MTOOLS_BIN, JOBS as the machine needs them.
 # The kernel must be built first (UniXNU-orangepi5/scripts/build-orangepi5-kernel.sh); the firmware image (./build.sh) is optional.
 set -euo pipefail
@@ -22,6 +26,8 @@ ROOT_IMAGE="${ROOT_IMAGE:?set ROOT_IMAGE (userdata-root.img) in .env}"
 PAYLOAD="${PAYLOAD:-$UNIXNU/out/orangepi5/ipados-17.7.11-21H461/orangepi5/payload/payload.img}"
 NOR="${NOR:-$ROOT/out/RK3588_NOR_FLASH-unixnu-orangepi5.img}"
 OUT="${OUT:-$ROOT/out/bundle}"
+LAUNCHER_DIR="${LAUNCHER_DIR:-$ROOT/out/launcher}"
+DISK_DIR="${DISK_DIR:-$ROOT/out/disk}"
 TRUST_CACHE="${TRUST_CACHE-$ART/trust/original-static-system.bundle}"
 DATA_MIB="${DATA_MIB:-2048}"
 # The menu starts DEFAULT_ENTRY after MENU_TIMEOUT seconds. The default is the probe (reads the drive, writes nothing) with time to read
@@ -56,10 +62,26 @@ echo "== the payload's menu: no power-off entry, default entry $DEFAULT_ENTRY, c
 python3 "$HERE/patch-payload-toml.py" "$PAYLOAD" --default "$DEFAULT_ENTRY" --timeout "$MENU_TIMEOUT"
 python3 "$HERE/patch-payload-toml.py" "$PAYLOAD" --default "$DEFAULT_ENTRY" --timeout "$MENU_TIMEOUT" --check
 
+MCOPY="${MTOOLS_BIN:+$MTOOLS_BIN/}mcopy"
+if [ -f "$LAUNCHER_DIR/BL33_AP_UEFI-orangepi5-launcher.Fv" ]; then
+	echo "== launcher: uefi-launcher.img and boot.scr into the ESP (U-Boot starts the firmware from the NVMe, nothing is flashed)"
+	"$ROOT/tools/stub/build.sh" | sed -n '1,3p'
+	python3 "$HERE/make-bootscr.py" "$HERE/boot.cmd" "$LAUNCHER_DIR/boot.scr"
+	"$MCOPY" -o -i "$PAYLOAD" "$LAUNCHER_DIR/uefi-launcher.img" "$LAUNCHER_DIR/boot.scr" ::/
+	mkdir -p "$OUT/uboot"
+	cp -f "$LAUNCHER_DIR/uefi-launcher.img" "$LAUNCHER_DIR/boot.scr" "$HERE/boot.cmd" "$OUT/uboot/"
+	echo "   $(stat -c %s "$LAUNCHER_DIR/uefi-launcher.img") bytes uefi-launcher.img, $(stat -c %s "$LAUNCHER_DIR/boot.scr") bytes boot.scr"
+else
+	echo "== launcher: none ($LAUNCHER_DIR has no firmware volume; ./build.sh -L builds it). The ESP will not start from U-Boot."
+fi
 echo "== bundle"
 NOR_ARG=()
 if [ -f "$NOR" ]; then NOR_ARG=(--nor "$NOR"); else echo "   (no firmware image $NOR: the bundle has no nor.img)"; fi
 python3 "$HERE/make-bundle.py" "$OUT" --device-repo "$DEVICE" --payload "$PAYLOAD" --root "$ROOT_IMAGE" ${NOR_ARG[@]+"${NOR_ARG[@]}"}
+echo "== the ESP alone, for an update through U-Boot's ums"
+mkdir -p "$DISK_DIR"
+cp -f --sparse=never "$PAYLOAD" "$DISK_DIR/esp.img"
+(cd "$DISK_DIR" && { grep -v ' esp\.img$' SHA256SUMS 2>/dev/null || true; sha256sum esp.img; } > SHA256SUMS.new && mv SHA256SUMS.new SHA256SUMS && sed 's/^/   /' SHA256SUMS)
 echo "== the payload's files for a USB stick (updating the ESP from the UEFI shell, no Linux needed)"
 rm -rf "$OUT/esp-files"
 mkdir -p "$OUT/esp-files"
