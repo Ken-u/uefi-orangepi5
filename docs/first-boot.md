@@ -62,7 +62,7 @@ Host checks that ran (build host, see the commit messages for the revisions): `n
 the GPT writer and the drive checks (all caught); a full install of the bundle into a 128 GB sparse file, read back and compared;
 the GPT read with the driver's own reader (`package/Rk3588Nvme/tests/check-gpt-image.cpp`), with `fdisk` and `sfdisk --verify`;
 the payload's FAT volume read with mtools and `fsck.vfat`; the exported `pcie-nvme` node in the payload's device tree;
-`boot.scr` byte for byte against `mkimage -T script`; the stub's instructions against the EVB10 stub that ran on a board (identical;
+`boot.scr` against `mkimage -T script` (byte for byte with `make-bootscr.py --table-end 0`; the default differs in one word, see the table of section 4); the stub's instructions against the EVB10 stub that ran on a board (identical;
 only the strings and the `text_offset` field of the header differ).
 
 ## 3. Write the drive from the Mac (`ums`)
@@ -139,11 +139,20 @@ If it does not look like this:
 | `LAUNCHER: EL=...` but no UEFI banner, the board resets after about 90 s | the watchdog fired: the firmware hung before DXE. The log up to the reset is what is needed |
 | UEFI banner, then a hang in PCIe or NVMe code | see the table of section 5 |
 
-Not known until a board runs it: that `booti` leaves the stub where it was loaded (the stub works from wherever it is, and
-`text_offset` makes a relocating `booti` put it at the same place); that U-Boot's device tree, which the stub hands to the firmware, is
-still intact when the firmware reads it (if not, `UNIXNURAMDISK: x0 ... is not a device tree` appears and nothing else changes: the
-payload comes from the ESP); that the firmware can bring the PCIe link up again after U-Boot has used the drive (the NVMe lines of
-section 5).
+Seen on the Orange Pi 5 (2026-11-03, `UniXNU-orangepi5/evidence/device-first-boot-20261103.txt`): `boot.scr` starts the launcher by itself,
+also after the restart that follows a kernel panic; `booti` leaves the stub where it was loaded; the firmware gets U-Boot's device tree in x0
+(one `Bad transfer list signature 0xEDFE0DD0` line, harmless: x0 is not a transfer list); the firmware brings the PCIe link up again after
+U-Boot has used the drive. Not exercised: the hardware watchdog resetting a hung firmware or kernel (a kernel panic restarts the board at once).
+
+**`boot.scr` and this board's U-Boot.** A `boot.scr` as `mkimage -T script` writes it (size table `length, 0`) made this U-Boot print
+`Unknown command '<garbage>'`: it counts the entries of a script image up to a word of `0xffffffff`, not up to 0, so it ran past the end of the
+file and took the text from behind it. `make-bootscr.py` therefore ends the table with `0xffffffff` (`iminfo` then lists one image and `source`
+runs the text); `--table-end 0` writes mkimage's layout for a U-Boot that wants that. The test is `python3 tools/board/test-bootscr.py`.
+
+**Keys on the serial console without a person:** `CAPTURE_ARGS="--send 'menu: shown' text:1" tools/board/capture-remote.sh TAG 480` types `1`
+(the first menu entry, `xnu`) in the countdown; the same reader captures the log. In the menu a digit `N` boots entry `N` (1 `xnu`,
+2 `xnu-hdmi`, 3 `xnu-probe`, 4 `xnu-ramdata`), Up/Down and Enter or space also work. From the U-Boot prompt the board restarts with `reset`
+(typed on the serial console; there is no reset controller on this board), after which U-Boot runs `boot.scr` again.
 
 On HDMI only the firmware's own screens appear in this build (logo, then the menu). The kernel has no display driver yet: **its output
 is on the serial port only**. A black monitor after the menu is expected.
@@ -157,7 +166,7 @@ Search with `rg -n 'PATTERN' runs/m0.ts`.
 | Firmware | the `LAUNCHER:` lines, UEFI banner `UniXNU` / `Orange Pi 5 (UniXNU)`, the UniXNU menu, `DARWINBOOT:` lines | Firmware ASSERT: send `runs/m0.ts` |
 | Memory | the UEFI memory map (DEBUG build) with a conventional range of at least 2 GiB | `Out of Resources` from DarwinBoot: lower `payload.adt.owned_memory_size` |
 | Kernel start | `NativeNvme: matched ...` | no line: the personality or the ADT node `pcie-nvme` is not there (`strings kernel.macho.adt`) |
-| PCIe | `pcie: LTSSM 0x11 (L0), root port link status ...: Gen2 x1`, then `pcie: 00:00.0 vendor ... class 0x10802`, `BAR0 ...` | LTSSM not L0: the firmware did not bring the link up (UEFI setup, Advanced, Rockchip platform configuration, PCIe/SATA/USB; the firmware has to do it again after U-Boot). `nothing answers at 00:00.0`: the controller address assumptions are wrong or no drive. `BAR0 ... lies in none of the windows`: the BAR is elsewhere than derived |
+| PCIe | `pcie: LTSSM 0x30011 (L0, link up), root port link status ...: Gen1 x1`, then `pcie: 00:00.0 vendor ... class 0x10802`, `BAR0 0xf0000000 (64-bit, not prefetchable) is at CPU address 0xa38000000` (what the first run printed) | LTSSM not L0: the firmware did not bring the link up (UEFI setup, Advanced, Rockchip platform configuration, PCIe/SATA/USB; the firmware has to do it again after U-Boot). `nothing answers at 00:00.0`: the controller address assumptions are wrong or no drive. `BAR0 ... lies in none of the windows`: the BAR is elsewhere than derived |
 | NVMe | `NVMe 1.x ...`, `controller as the firmware left it: CC ... CSTS ...`, `namespace 1: N blocks of 2^9 bytes`, `queues granted: 1 submission, 1 completion` | a timeout at the first command: DMA window or BAR mapping; the lines before it show CAP/VS and the controller state |
 | GPT | `GPT disk ...`, `gpt[0] esp`, `gpt[1] userdata`, `probe 1024 blocks of userdata twice ... (stable)` | a CRC mismatch in the probe: DMA coherence (the cache handling) |
 | Root | `root image at block 526336: 2 windows`, `published OS`, `published SystemOS`, `all 2 root windows published` | `no SHNGROOT magic`: the root image is not where the GPT says |

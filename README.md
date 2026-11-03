@@ -20,7 +20,7 @@ Derived from [`uefi-evb10`](https://github.com/Ken-u/uefi-evb10).
 | `UniXNUOrangePi5/BootWdt` | Hardware watchdog safety net (the board has no remote power switch) |
 | `build.sh` | Builds the firmware and packs the NOR image; `-L` builds the launcher volume instead (no SPI NOR variable store, no NOR image) |
 | `tools/stub/` | The launcher: `launcher.S` (arm64 Image header, copies the volume to 0x200000, arms the watchdog, jumps in), `build.sh` (wraps the volume into `out/launcher/uefi-launcher.img`), `fv-entry.py` (the volume's entry point, read from its reset vector) |
-| `tools/board/` | Board tools: `make-bundle.sh` (payload, launcher and everything for the board in one directory), `make-disk-image.sh` (the bundle as `dd` files for a drive exported by U-Boot's `ums`), `nvme-install.py` (GPT, ESP and root image onto the NVMe drive, with read-back), `boot.cmd` and `make-bootscr.py` (the `boot.scr` that starts the launcher), `spi-flash.sh` (SPI NOR with backup), `make-loader.sh` (Maskrom loader from rkbin), `capture.sh` and `capture-remote.sh` (serial log with times, locally or through the board host), `patch-payload-toml.py` |
+| `tools/board/` | Board tools: `make-bundle.sh` (payload, launcher and everything for the board in one directory), `make-disk-image.sh` (the bundle as `dd` files for a drive exported by U-Boot's `ums`), `nvme-install.py` (GPT, ESP and root image onto the NVMe drive, with read-back), `boot.cmd` and `make-bootscr.py` (the `boot.scr` that starts the launcher; its size table ends with `0xffffffff` because this board's U-Boot needs that, `test-bootscr.py` checks the layout), `spi-flash.sh` (SPI NOR with backup), `make-loader.sh` (Maskrom loader from rkbin), `capture.sh` and `capture-remote.sh` (serial log with times, locally or through the board host; `CAPTURE_ARGS` passes `--stop` and `--send` to the capture tool), `patch-payload-toml.py` |
 | `docs/first-boot.md` | What to connect, how to write the drive (through `ums` from a Mac, or from Linux with an SD card), how the firmware starts, what the first log should show |
 
 There is no RAM-disk driver here: the payload is the ESP of the NVMe drive in the M.2 slot, which the firmware's
@@ -44,7 +44,11 @@ required for bring-up: the serial log depends on it.
 
 Builds on the host (modules present in the firmware volume: Vop2Dxe, DwHdmiQpLib, NvmExpressDxe, UniXNU,
 UniXNUDxe, DarwinBoot, UniXNUBootWdtDxe). The board tools ran on the host against a file-backed 128 GB image (`nvme-install.py --selftest`
-and a full install with read-back). **Not yet run on a board.**
+and a full install with read-back).
+
+**Ran on a board (2026-11-03):** an Orange Pi 5 (8 GiB, NVMe in the M.2 slot) started from U-Boot's `boot.scr` through the launcher: the
+firmware sees 8192 MB, finds the NVMe ESP, shows the menu and hands the kernel over; the kernel mounts the root and Data volumes from the
+drive and `launchd` runs. Not looked at: the HDMI picture. Excerpts of the logs are in `UniXNU-orangepi5/evidence/device-first-boot-20261103.txt`.
 
 ## License
 
