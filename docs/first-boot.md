@@ -169,7 +169,7 @@ Search with `rg -n 'PATTERN' runs/m0.ts`.
 | Step | Lines | If it fails |
 | --- | --- | --- |
 | Firmware | the `LAUNCHER:` lines, UEFI banner `UniXNU` / `Orange Pi 5 (UniXNU)`, the UniXNU menu, `DARWINBOOT:` lines | Firmware ASSERT: send `runs/m0.ts` |
-| Memory | `MEMMAP:` lines (`UniXNUMemMapDxe`, DEBUG build) before the menu and at ExitBootServices: `largest run 2674 MiB at 0x40000000` on the 8 GiB board; `DARWINBOOT: ARM64 ... owned=0xA0000000`, `vm_page_bootstrap: 626171 free pages` | `boot refused: Out of Resources` from DarwinBoot: no free run is as long as `payload.adt.owned_memory_size`; lower it below the largest run (the menu then waits for a key: type `5`) |
+| Memory | `MEMMAP:` lines (`UniXNUMemMapDxe`, DEBUG build) before the menu and at ExitBootServices: `largest run 4096 MiB at 0x100000000` on the 8 GiB board; `DARWINBOOT: ARM64 ... pa=0x10007C000 ... owned=0xF8000000`, `vm_page_bootstrap: 981518 free pages` | `boot refused: Out of Resources` from DarwinBoot: no free run is as long as `payload.adt.owned_memory_size`; lower it below the largest run (the menu then waits for a key: type `5`) |
 | Kernel start | `NativeNvme: matched ...` | no line: the personality or the ADT node `pcie-nvme` is not there (`strings kernel.macho.adt`) |
 | PCIe | `pcie: LTSSM 0x30011 (L0, link up), root port link status ...: Gen1 x1`, then `pcie: 00:00.0 vendor ... class 0x10802`, `BAR0 0xf0000000 (64-bit, not prefetchable) is at CPU address 0xa38000000` (what the first run printed) | LTSSM not L0: the firmware did not bring the link up (UEFI setup, Advanced, Rockchip platform configuration, PCIe/SATA/USB; the firmware has to do it again after U-Boot). `nothing answers at 00:00.0`: the controller address assumptions are wrong or no drive. `BAR0 ... lies in none of the windows`: the BAR is elsewhere than derived |
 | NVMe | `NVMe 1.x ...`, `controller as the firmware left it: CC ... CSTS ...`, `namespace 1: N blocks of 2^9 bytes`, `queues granted: 1 submission, 1 completion` | a timeout at the first command: DMA window or BAR mapping; the lines before it show CAP/VS and the controller state |
@@ -199,7 +199,7 @@ only, to see the reset path early).
 
 What changes in the files, not in the kernel, once the log shows the real values:
 
-- the memory: `payload.adt.owned_memory_size` below the largest run of the `MEMMAP:` log, and the memory node of `dts/orangepi5.dts` with `payload.dram_size` equal to it in `UniXNU-orangepi5` (ADT only, no kernel rebuild; done for the 8 GiB board: 2.5 GiB, see `UniXNU-orangepi5/docs/bring-up.md`);
+- the memory: `payload.adt.owned_memory_size` below the largest run of the `MEMMAP:` log, and the memory node of `dts/orangepi5.dts` with `payload.dram_size` equal to it in `UniXNU-orangepi5` (ADT only, no kernel rebuild; done for the 8 GiB board: 3.875 GiB in the 4 GiB bank, see `UniXNU-orangepi5/docs/bring-up.md`; the run is one piece only with the two firmware settings of `dc08d7c` and `e1ac136`);
 - the PCIe addresses: only if the log disagrees with `package/Rk3588Nvme/README.md` (then `NativeNvme.cpp`, which needs a kernel build).
 
 Then record the observations in `porting.toml` of `UniXNU-orangepi5` with the log as evidence.
