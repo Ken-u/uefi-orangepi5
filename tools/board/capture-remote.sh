@@ -2,7 +2,10 @@
 # Capture the serial console of the Orange Pi 5 on the board host (the machine the USB serial adapter is plugged into) and
 # bring the log back: runs/TAG.raw (as received) and runs/TAG.ts (with the elapsed seconds in front of every line).
 #
-#   tools/board/capture-remote.sh TAG [SECONDS [DEVICE]]      defaults: 300 s, /dev/ttyUSB0
+#   tools/board/capture-remote.sh TAG [SECONDS [DEVICE]]      defaults: 300 s, $BOARD_SERIAL_DEV (.env) or /dev/ttyUSB0
+#
+# The USB serial adapter drops off the bus when the board resets and comes back under another name (ttyUSB0 -> ttyUSB1): put its
+# /dev/serial/by-id/... path in .env as BOARD_SERIAL_DEV. The capture tool notes "# device closed" and stops when that happens.
 #   CAPTURE_ARGS="--send 'menu: shown' text:1" tools/board/capture-remote.sh TAG 420
 #
 # CAPTURE_ARGS goes to serial-capture.py as it is (the board host's shell reads it): --stop REGEX SECS WHY ends the run early,
@@ -18,7 +21,7 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 HOST="${BOARD_HOST:?set BOARD_HOST in .env}"
 TAG="${1:?usage: capture-remote.sh TAG [SECONDS [DEVICE]]}"
 SECS="${2:-300}"
-DEV="${3:-/dev/ttyUSB0}"
+DEV="${3:-${BOARD_SERIAL_DEV:-/dev/ttyUSB0}}"
 CAP="$RK3588_BOARD_TOOLS/serial-capture.py"
 [ -f "$CAP" ] || { echo "no $CAP (set RK3588_COMMON in .env)" >&2; exit 1; }
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=10 "$HOST")
