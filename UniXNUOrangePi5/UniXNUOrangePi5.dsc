@@ -191,7 +191,15 @@
 ################################################################################
 [Components.common]
   # ACPI Support (upstream's Orange Pi 5 tables)
-  Platform/OrangePi/OrangePi5/AcpiTables/AcpiTables.inf
+  #
+  # GenFw takes a table from the start of the .data of its image. With this clang the object of Pptt.aslc has .data.rel.ro (the 8 bytes of
+  # ReferenceAcpiTable) before .data (the table), so Pptt.acpi began with 8 stray bytes: the sixth table read from the volume had the signature
+  # 0x240 and a length of 0, and the install loop of AcpiLib stopped there (SPCR and the DSDT were never installed, "Couldn't locate ACPI DSDT
+  # table"). Sorting the input sections by name puts .data first for every table, as it already is for the others.
+  Platform/OrangePi/OrangePi5/AcpiTables/AcpiTables.inf {
+    <BuildOptions>
+      *_CLANGDWARF_AARCH64_ASLDLINK_FLAGS = -Wl,--sort-section=name
+  }
 
   # Device Tree Support (upstream's blobs for the firmware's /dtb handling; XNU uses its own ADT)
   Platform/OrangePi/OrangePi5/DeviceTree/Vendor.inf
