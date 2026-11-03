@@ -272,5 +272,19 @@ with `scp`; `SERIAL_DEV` is the by-id path, `BOARD_SERIAL_DEV` in `.env`).
    The last number must equal the one of the first step; `fatload` must print the same size.
 4. `run bootcmd` boots from the ESP again (no new banner is printed before the firmware's own).
 
+Two things learned with the 51 MB kernel (2026-11-03, display build):
+
+- Do not read or `crc32` a RAM range that reaches 0x8400000 (protected memory, the trusted firmware's): `crc32 0x6000000 0x30e9000` ended in
+  `"Synchronous Abort" handler, esr 0x96000010, far 0x8400000`, U-Boot printed "Resetting CPU ..." and "### ERROR ### Please RESET the board ###"
+  and hung, and nothing but pulling the plug brought the board back (there is no reset line, the watchdog is not armed in U-Boot). Put the data at
+  0x1000000 (up to 0x8400000 is 116 MiB, enough for the 51 MB kernel) and read it back for `crc32` at 0xa000000 or above.
+- `uboot-put.py` used to give up with "the header packet was refused" on larger files and shortly after another transfer: the U-Boot sometimes
+  does not take the header after its first `C`, keeps sending `C` once a second and NAKs some seconds later. The tool now sends the header
+  again every 2.5 s until it is acknowledged (UniXNU-rk3588-common a37ea4b). A transfer runs at about 60-70 KB/s (16 MiB in 4 minutes), so the
+  kernel goes in four pieces of 16 MiB at 0x1000000, 0x2000000, 0x3000000 and 0x4000000 (the last one is 954368 bytes, ending at 0x40e9000),
+  each checked by its own `crc32`, followed by one `fatwrite nvme 0:1 0x1000000 EFI/UniXNU/Payloads/kernel.macho 0x30e9000` (51286016 bytes written in
+  237 ms) and `fatload nvme 0:1 0xa000000 EFI/UniXNU/Payloads/kernel.macho` with `crc32 0xa000000 0x30e9000` over the whole. After a transfer the
+  U-Boot needs about a minute before a new `loady` is taken; poll the prompt with `echo hi` first.
+
 The capture of a run then ends by itself at the next U-Boot banner. The runs of the memory work (`evidence/device-memory-20261103.txt` of
 `UniXNU-orangepi5`) were all made this way; the files that went to the ESP were checked by `crc32` before every boot.
