@@ -3,6 +3,10 @@
 # bring the log back: runs/TAG.raw (as received) and runs/TAG.ts (with the elapsed seconds in front of every line).
 #
 #   tools/board/capture-remote.sh TAG [SECONDS [DEVICE]]      defaults: 300 s, /dev/ttyUSB0
+#   CAPTURE_ARGS="--send 'menu: shown' text:1" tools/board/capture-remote.sh TAG 420
+#
+# CAPTURE_ARGS goes to serial-capture.py as it is (the board host's shell reads it): --stop REGEX SECS WHY ends the run early,
+# --send REGEX KEYS types keys once after a matching line, e.g. a digit in the UniXNU menu picks that entry (1 = xnu, 3 = xnu-probe).
 #
 # BOARD_HOST (ssh target, key authentication) comes from .env. Start it BEFORE the power goes on; it blocks for SECONDS.
 # Needs python3 and stty on the board host; serial-capture.py is copied there (~/unixnu-opi5). One reader at a time:
@@ -29,6 +33,6 @@ scp -q -o BatchMode=yes "$CAP" "$HOST:unixnu-opi5/serial-capture.py"
 mkdir -p "$ROOT/runs"
 echo "capturing $DEV on the board host for up to $SECS s (tag $TAG); power the board on now"
 "${SSH[@]}" "stty -F '$DEV' 1500000 cs8 -cstopb -parenb raw -echo -echoe -echok -crtscts -ixon -ixoff && \
-	python3 ~/unixnu-opi5/serial-capture.py '$DEV' '$SECS' ~/unixnu-opi5/runs/$TAG.raw ~/unixnu-opi5/runs/$TAG.ts" || true
+	python3 ~/unixnu-opi5/serial-capture.py ${CAPTURE_ARGS:-} '$DEV' '$SECS' ~/unixnu-opi5/runs/$TAG.raw ~/unixnu-opi5/runs/$TAG.ts" || true
 scp -q -o BatchMode=yes "$HOST:unixnu-opi5/runs/$TAG.raw" "$HOST:unixnu-opi5/runs/$TAG.ts" "$ROOT/runs/"
 echo "-> $ROOT/runs/$TAG.ts ($(wc -l < "$ROOT/runs/$TAG.ts") lines), $ROOT/runs/$TAG.raw ($(stat -c %s "$ROOT/runs/$TAG.raw") bytes)"
