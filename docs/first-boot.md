@@ -260,8 +260,7 @@ For files that change often (`kernel.macho.adt`, `unixnu.toml`, even `uefi-launc
 of the board is enough. The board host runs `uboot-put.py` and `uboot-cmd.py` (both from `UniXNU-rk3588-common/tools/board`, copied there
 with `scp`; `SERIAL_DEV` is the by-id path, `BOARD_SERIAL_DEV` in `.env`).
 
-1. Get the U-Boot prompt. The autoboot is stopped only by `Ctrl-C` (a "Hit key to stop autoboot" line that only another key is said to stop
-   does not do it). The countdown line is not complete until it ends, so a capture cannot match it: match the earlier banner and type
+1. Get the U-Boot prompt. This U-Boot's autoboot ("Hit key to stop autoboot('CTRL+C')") is stopped by `Ctrl-C` only; other keys do not. The countdown line is not complete until it ends, so a capture cannot match it: match the earlier banner and type
    `Ctrl-C` many times: `CAPTURE_ARGS="--send 'U-Boot v' ctrl-c,ctrl-c,ctrl-c,ctrl-c,ctrl-c,ctrl-c,ctrl-c,ctrl-c --stop '<INTERRUPT>' 1 'at the U-Boot prompt'"`.
    The board reaches a banner by itself: a kernel panic restarts it in a second, the `xnu-probe` entry panics about 20 s after the hand-off
    (84 s per round), the watchdog resets it 89 s after the feeding ends, and the menu entry `Restart` (key `5`) resets it.
