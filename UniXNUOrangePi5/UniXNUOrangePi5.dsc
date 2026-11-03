@@ -226,3 +226,5 @@
   # kernel one window (about 89 s) before the SoC resets. The watchdog cannot be
   # disarmed once armed, see BootWdt/UniXNUBootWdtDxe.c for the switches.
   $(PLATFORM_DIRECTORY)/BootWdt/UniXNUBootWdtDxe.inf
+  # The UEFI memory map in the serial log (what the kernel's window can be taken from), see MemMap/UniXNUMemMapDxe.c.
+  $(PLATFORM_DIRECTORY)/MemMap/UniXNUMemMapDxe.inf

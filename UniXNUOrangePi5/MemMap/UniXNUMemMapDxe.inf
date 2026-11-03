@@ -1,0 +1,34 @@
+## @file
+#  Prints the UEFI memory map on the serial console whenever it changes, and once more at ExitBootServices, so that every
+#  boot log says which free runs the kernel's window (DarwinBoot, payload.adt.owned_memory_size) could come from.
+#  See UniXNUMemMapDxe.c.
+#
+#  Copyright (c) 2026, UniXNU contributors. All rights reserved.
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010019
+  BASE_NAME      = UniXNUMemMapDxe
+  FILE_GUID      = 67CFB2DB-A564-4F5E-A111-5C5549ACD31F
+  MODULE_TYPE    = DXE_DRIVER
+  VERSION_STRING = 0.1
+  ENTRY_POINT    = UniXNUMemMapEntry
+
+[Sources]
+  UniXNUMemMapDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  BaseLib
+  DebugLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+
+[Guids]
+  gEfiEventExitBootServicesGuid
+
+[Depex]
+  gEfiTimerArchProtocolGuid

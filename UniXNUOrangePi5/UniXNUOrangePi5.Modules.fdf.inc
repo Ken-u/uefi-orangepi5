@@ -39,3 +39,8 @@
   # Hardware watchdog safety net (see BootWdt/UniXNUBootWdtDxe.c).
   #
   INF $(PLATFORM_DIRECTORY)/BootWdt/UniXNUBootWdtDxe.inf
+
+  #
+  # The UEFI memory map in the serial log (see MemMap/UniXNUMemMapDxe.c).
+  #
+  INF $(PLATFORM_DIRECTORY)/MemMap/UniXNUMemMapDxe.inf
