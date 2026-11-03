@@ -169,7 +169,7 @@ Search with `rg -n 'PATTERN' runs/m0.ts`.
 | Step | Lines | If it fails |
 | --- | --- | --- |
 | Firmware | the `LAUNCHER:` lines, UEFI banner `UniXNU` / `Orange Pi 5 (UniXNU)`, the UniXNU menu, `DARWINBOOT:` lines | Firmware ASSERT: send `runs/m0.ts` |
-| Memory | the UEFI memory map (DEBUG build) with a conventional range of at least 2 GiB | `Out of Resources` from DarwinBoot: lower `payload.adt.owned_memory_size` |
+| Memory | `MEMMAP:` lines (`UniXNUMemMapDxe`, DEBUG build) before the menu and at ExitBootServices: `largest run 2674 MiB at 0x40000000` on the 8 GiB board; `DARWINBOOT: ARM64 ... owned=0xA0000000`, `vm_page_bootstrap: 626171 free pages` | `boot refused: Out of Resources` from DarwinBoot: no free run is as long as `payload.adt.owned_memory_size`; lower it below the largest run (the menu then waits for a key: type `5`) |
 | Kernel start | `NativeNvme: matched ...` | no line: the personality or the ADT node `pcie-nvme` is not there (`strings kernel.macho.adt`) |
 | PCIe | `pcie: LTSSM 0x30011 (L0, link up), root port link status ...: Gen1 x1`, then `pcie: 00:00.0 vendor ... class 0x10802`, `BAR0 0xf0000000 (64-bit, not prefetchable) is at CPU address 0xa38000000` (what the first run printed) | LTSSM not L0: the firmware did not bring the link up (UEFI setup, Advanced, Rockchip platform configuration, PCIe/SATA/USB; the firmware has to do it again after U-Boot). `nothing answers at 00:00.0`: the controller address assumptions are wrong or no drive. `BAR0 ... lies in none of the windows`: the BAR is elsewhere than derived |
 | NVMe | `NVMe 1.x ...`, `controller as the firmware left it: CC ... CSTS ...`, `namespace 1: N blocks of 2^9 bytes`, `queues granted: 1 submission, 1 completion` | a timeout at the first command: DMA window or BAR mapping; the lines before it show CAP/VS and the controller state |
@@ -199,8 +199,7 @@ only, to see the reset path early).
 
 What changes in the files, not in the kernel, once the log shows the real values:
 
-- the memory map: `dts/orangepi5.dts` memory node and `payload.dram_size` in `UniXNU-orangepi5` (ADT only, no kernel rebuild);
-- the owner of the kernel's pages: `payload.adt.owned_memory_size`;
+- the memory: `payload.adt.owned_memory_size` below the largest run of the `MEMMAP:` log, and the memory node of `dts/orangepi5.dts` with `payload.dram_size` equal to it in `UniXNU-orangepi5` (ADT only, no kernel rebuild; done for the 8 GiB board: 2.5 GiB, see `UniXNU-orangepi5/docs/bring-up.md`);
 - the PCIe addresses: only if the log disagrees with `package/Rk3588Nvme/README.md` (then `NativeNvme.cpp`, which needs a kernel build).
 
 Then record the observations in `porting.toml` of `UniXNU-orangepi5` with the log as evidence.
@@ -254,3 +253,25 @@ the trust cache, the Data seed). To replace them on the board without any Linux:
    depends on the enumeration order) and `reset`.
 
 Not tried on this board. If `cp` is refused for the 51 MB kernel, copy `Payloads\kernel.macho` alone first.
+
+## 9. Replacing files on the ESP from the U-Boot prompt (no Mac, nobody at the board)
+
+For files that change often (`kernel.macho.adt`, `unixnu.toml`, even `uefi-launcher.img`) the `ums` route is not needed: the serial console
+of the board is enough. The board host runs `uboot-put.py` and `uboot-cmd.py` (both from `UniXNU-rk3588-common/tools/board`, copied there
+with `scp`; `SERIAL_DEV` is the by-id path, `BOARD_SERIAL_DEV` in `.env`).
+
+1. Get the U-Boot prompt. The autoboot is stopped only by `Ctrl-C` (a "Hit key to stop autoboot" line that only another key is said to stop
+   does not do it). The countdown line is not complete until it ends, so a capture cannot match it: match the earlier banner and type
+   `Ctrl-C` many times: `CAPTURE_ARGS="--send 'U-Boot v' ctrl-c,ctrl-c,ctrl-c,ctrl-c,ctrl-c,ctrl-c,ctrl-c,ctrl-c --stop '<INTERRUPT>' 1 'at the U-Boot prompt'"`.
+   The board reaches a banner by itself: a kernel panic restarts it in a second, the `xnu-probe` entry panics about 20 s after the hand-off
+   (84 s per round), the watchdog resets it 89 s after the feeding ends, and the menu entry `Restart` (key `5`) resets it.
+2. `python3 uboot-put.py FILE 0x1000000` sends the file with YMODEM (`loady`) at the console's 1.5 Mbaud (about 40 s for the 5 MiB launcher, instant
+   for the ADT) and compares `crc32` in U-Boot with its own. After a good transfer this U-Boot prints "Timed out" and "download aborted";
+   only the `crc32` line decides.
+3. In U-Boot, all numbers are **hex**: `nvme scan`, `fatwrite nvme 0:1 0x1000000 EFI/UniXNU/Payloads/kernel.macho.adt 0x3720` (the size of 14112 bytes;
+   with the decimal number U-Boot wrote 82194 bytes), `fatload nvme 0:1 0x3000000 EFI/UniXNU/Payloads/kernel.macho.adt`, `crc32 0x3000000 0x3720`.
+   The last number must equal the one of the first step; `fatload` must print the same size.
+4. `run bootcmd` boots from the ESP again (no new banner is printed before the firmware's own).
+
+The capture of a run then ends by itself at the next U-Boot banner. The runs of the memory work (`evidence/device-memory-20261103.txt` of
+`UniXNU-orangepi5`) were all made this way; the files that went to the ESP were checked by `crc32` before every boot.
