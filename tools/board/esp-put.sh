@@ -62,7 +62,7 @@ TOOLS="$RK3588_BOARD_TOOLS"
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=10 "$HOST")
 ENVSET="export SERIAL_DEV='$DEV';"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-"${SSH[@]}" "mkdir -p ~/unixnu-opi5/esp-put && rm -f ~/unixnu-opi5/esp-put/piece.*"
+"${SSH[@]}" "mkdir -p ~/unixnu-opi5/esp-put && find ~/unixnu-opi5/esp-put -maxdepth 1 -name 'piece.*' -delete"
 scp -q -o BatchMode=yes "$TOOLS/uboot-put.py" "$TOOLS/uboot-cmd.py" "$HOST:unixnu-opi5/"
 split -b "$PIECE" -d -a 3 "$F" "$TMP/piece."
 scp -q -o BatchMode=yes "$TMP"/piece.* "$HOST:unixnu-opi5/esp-put/"

@@ -39,6 +39,27 @@ DATA_MIB="${DATA_MIB:-2048}"
 DEFAULT_ENTRY="${DEFAULT_ENTRY:-xnu-probe}"
 MENU_TIMEOUT="${MENU_TIMEOUT:-10}"
 DATA_SEED="${DATA_SEED-$ART/data/owner-data-$DATA_MIB.trim.img}"
+# GPU Metal plug-in (MaliMetal metal-plugin/out/NativeMaliMetal.addon): board.toml or EXTRA_KERNEL_ARGS with
+# evb10-gpu-addon=1 makes the payload carry it (DarwinBoot -> /chosen/memory-map/GpuAddon) and switches to the owner trust
+# cache so AMFI accepts the plug-in's cdhash. Same recipe as uefi-evb10/tools/board/make-payload-boot.sh.
+WANT_GPU_ADDON=0
+if grep -q -E '"evb10-(exec|gpu-addon)=1"' "$DEVICE/board.toml" 2>/dev/null ||
+	[[ " ${EXTRA_KERNEL_ARGS:-} " == *" evb10-gpu-addon=1 "* ]] ||
+	[[ " ${EXTRA_KERNEL_ARGS:-} " == *" evb10-exec=1 "* ]]; then
+	WANT_GPU_ADDON=1
+fi
+if [ "$WANT_GPU_ADDON" = 1 ] && [ "${TRUST_CACHE}" = "$ART/trust/original-static-system.bundle" ]; then
+	TRUST_CACHE="$ART/trust/owner-static-system.bundle"
+	echo "== owner trust cache (evb10-gpu-addon / evb10-exec): $TRUST_CACHE"
+fi
+GPU_ADDON="${GPU_ADDON-}"
+if [ "$WANT_GPU_ADDON" = 1 ] && [ -z "$GPU_ADDON" ]; then
+	MALIMETAL_DIR="${MALIMETAL_DIR:-$ROOT/../MaliMetal}"
+	GPU_ADDON="$MALIMETAL_DIR/metal-plugin/out/NativeMaliMetal.addon"
+fi
+if [ "$WANT_GPU_ADDON" != 1 ]; then
+	GPU_ADDON=""
+fi
 
 if [ "${REBUILD:-0}" = 1 ]; then
 	echo "== payload"
@@ -52,6 +73,11 @@ if [ "${REBUILD:-0}" = 1 ]; then
 		[ -f "$DATA_SEED" ] || { echo "error: no Data seed $DATA_SEED" >&2; exit 1; }
 		ARGS="$ARGS --data-ramdisk $DATA_SEED"
 		echo "   Data seed: $DATA_SEED ($(stat -c %s "$DATA_SEED") bytes, sha256 $(sha256sum "$DATA_SEED" | cut -c1-16)...)"
+	fi
+	if [ -n "$GPU_ADDON" ]; then
+		[ -f "$GPU_ADDON" ] || { echo "error: no GPU addon $GPU_ADDON (build MaliMetal metal-plugin)" >&2; exit 1; }
+		ARGS="$ARGS --gpu-addon $GPU_ADDON"
+		echo "   GPU addon: $GPU_ADDON ($(stat -c %s "$GPU_ADDON") bytes, sha256 $(sha256sum "$GPU_ADDON" | cut -c1-16)...)"
 	fi
 	for kernel_arg in ${EXTRA_KERNEL_ARGS:-}; do
 		ARGS="$ARGS --kernel-arg $kernel_arg"
