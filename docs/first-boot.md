@@ -311,9 +311,11 @@ the drive and can be written in one go; the serial-line copy of section 9 is onl
 3. `upgrade_tool di -esp esp.img` writes the partition named `esp` (the GPT label); `upgrade_tool wl 0x800 esp.img` is the same by sector.
    The tool needs write access to the device node. The board host had no rule for 2207:350b (`51-android.rules` lists other ids), so the first
    try printed `Write LBA quit, creating comm object failed!`; a `MODE="0666"` rule for vendor 2207 in `/etc/udev/rules.d` fixes it for good.
-4. After `di` the tool resets the board by itself; no `Ctrl-C` is needed, and the board goes `boot.scr` → launcher → menu → kernel.
+4. `di` does not reset the board: U-Boot stays in rockusb mode (its console only prints the spinner) until `upgrade_tool rd` ("Reset Device OK")
+   or `Ctrl-C` and `reset` on the console. The board then goes `boot.scr` -> launcher -> menu -> kernel.
 
-On the board (2026-11-05): `esp.img` (sha256 `71b489c0...`; the kernel, ADT and `unixnu.toml` in it equal the ones that were on the drive, crc32
-`a7b54353`, `5c31f4d5`, `602cc606`) was written with `upgrade_tool di -esp` by the person at the board host, who reported it done; the board
-then started the kernel from that ESP (`esp1`: launchd boot tasks in the serial log, no panic in the 2 minutes captured). The write time was not
-measured, and no read-back compared the written partition with the sha256 (the boot is the only check).
+On the board (2026-11-05): `di -esp` of the 256 MiB `esp.img` took 1.5 s ("Download image ok"), and the board started the kernel of that image
+after `rd` (`mouse1`: the log lines of the new driver code were in the serial log; `esp1` was the same after a `di` run by the person at the board host). **`rl` is not a
+read-back that can be trusted here:** `upgrade_tool rl 0x800 0x80000 out.img` right after a `di` returned the first 31 MiB of the image and then
+`0xCC` where the image had data (225 of the 256 1 MiB blocks differed from the image, all from 31 MiB on; the sha256 did not match), although the board then booted the new kernel from the
+written ESP; so the boot is the check, or `fatload` + `crc32` at the U-Boot prompt.
