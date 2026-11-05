@@ -273,8 +273,8 @@ with `scp`; `SERIAL_DEV` is the by-id path, `BOARD_SERIAL_DEV` in `.env`).
 4. `run bootcmd` boots from the ESP again (no new banner is printed before the firmware's own).
 
 `tools/board/esp-put.sh LOCALFILE ESPPATH` does all of this for one file (pieces, prompt polling, the safe addresses, the read back and the
-`VERIFIED` line; `--dry-run` prints the plan). Its dry run and the pieces it is made of were tried on the board; the first complete live run is
-still to be made. Two things learned with the 51 MB kernel (2026-11-03, display build):
+`VERIFIED` line; `--dry-run` prints the plan). It has written the kernel, the ADT and `unixnu.toml` to the board and printed `VERIFIED` for each
+(2026-11-05; the 51 MB kernel takes about 20 minutes). Two things learned with the 51 MB kernel (2026-11-03, display build):
 
 - Do not read or `crc32` a RAM range that reaches 0x8400000 (protected memory, the trusted firmware's): `crc32 0x6000000 0x30e9000` ended in
   `"Synchronous Abort" handler, esr 0x96000010, far 0x8400000`, U-Boot printed "Resetting CPU ..." and "### ERROR ### Please RESET the board ###"
@@ -287,6 +287,13 @@ still to be made. Two things learned with the 51 MB kernel (2026-11-03, display 
   each checked by its own `crc32`, followed by one `fatwrite nvme 0:1 0x1000000 EFI/UniXNU/Payloads/kernel.macho 0x30e9000` (51286016 bytes written in
   237 ms) and `fatload nvme 0:1 0xa000000 EFI/UniXNU/Payloads/kernel.macho` with `crc32 0xa000000 0x30e9000` over the whole. After a transfer the
   U-Boot needs about a minute before a new `loady` is taken; poll the prompt with `echo hi` first.
+
+`tools/board/esp-put-delta.sh LOCALFILE ESPPATH` is the same for a file that is already on the ESP in an older version (a kernel rebuilt after a
+driver change has the same size and differs in a few places). U-Boot reads the old file into RAM, takes the `crc32` of every 1 MiB block, and only
+the blocks that differ cross the serial line (blocks at most `MERGE_GAP`=3 apart go in one transfer, since U-Boot needs about a minute between two
+`loady`); then the whole file is written and read back as above (`VERIFIED ... (sent N)`). On the board (2026-11-05, kernel of 51757056 bytes, one
+driver changed): 24 of 50 blocks differed, 25542656 bytes were sent instead of 51757056, and the read-back `crc32` matched. The relinked kernel
+of a bigger change differs in most blocks and then costs what `esp-put.sh` costs.
 
 The capture of a run then ends by itself at the next U-Boot banner. The runs of the memory work (`evidence/device-memory-20261103.txt` of
 `UniXNU-orangepi5`) were all made this way; the files that went to the ESP were checked by `crc32` before every boot.
