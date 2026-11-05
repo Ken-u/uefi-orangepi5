@@ -297,3 +297,23 @@ of a bigger change differs in most blocks and then costs what `esp-put.sh` costs
 
 The capture of a run then ends by itself at the next U-Boot banner. The runs of the memory work (`evidence/device-memory-20261103.txt` of
 `UniXNU-orangepi5`) were all made this way; the files that went to the ESP were checked by `crc32` before every boot.
+
+## 10. Replacing the whole ESP over rockusb (fast, the board's USB-C on the board host)
+
+When the board's OTG port is cabled to a host that has Rockchip's `upgrade_tool` (the board host here, v2.44), the ESP is a partition of
+the drive and can be written in one go; the serial-line copy of section 9 is only for when nobody can cable the board.
+
+1. Build the image: `REBUILD=1 tools/board/make-bundle.sh` (add `DEFAULT_ENTRY=xnu MENU_TIMEOUT=3` for the boot-straight-in menu), then
+   `tools/board/make-disk-image.sh`; `out/disk/esp.img` is the 256 MiB ESP (written at LBA 2048). Copy it to the board host.
+2. Get the U-Boot prompt (section 9, step 1) and start the export: `rockusb 0 nvme 0` (do not use `uboot-cmd.py`, it waits for a prompt that
+   comes back only after `Ctrl-C`: `printf 'rockusb 0 nvme 0\r' > $BOARD_SERIAL_DEV`). U-Boot prints `RKUSB: LUN 0, dev 0, ... count 0x...` and
+   `usb device is super-speed`; `upgrade_tool ld` then lists one device, `Vid=0x2207,Pid=0x350b ... Mode=Loader`.
+3. `upgrade_tool di -esp esp.img` writes the partition named `esp` (the GPT label); `upgrade_tool wl 0x800 esp.img` is the same by sector.
+   The tool needs write access to the device node. The board host had no rule for 2207:350b (`51-android.rules` lists other ids), so the first
+   try printed `Write LBA quit, creating comm object failed!`; a `MODE="0666"` rule for vendor 2207 in `/etc/udev/rules.d` fixes it for good.
+4. After `di` the tool resets the board by itself; no `Ctrl-C` is needed, and the board goes `boot.scr` → launcher → menu → kernel.
+
+On the board (2026-11-05): `esp.img` (sha256 `71b489c0...`; the kernel, ADT and `unixnu.toml` in it equal the ones that were on the drive, crc32
+`a7b54353`, `5c31f4d5`, `602cc606`) was written with `upgrade_tool di -esp` by the person at the board host, who reported it done; the board
+then started the kernel from that ESP (`esp1`: launchd boot tasks in the serial log, no panic in the 2 minutes captured). The write time was not
+measured, and no read-back compared the written partition with the sha256 (the boot is the only check).
