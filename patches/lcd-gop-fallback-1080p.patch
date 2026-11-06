@@ -1,0 +1,15 @@
+--- a/Silicon/Rockchip/Drivers/LcdGraphicsOutputDxe/LcdGraphicsOutputDxe.c
++++ b/Silicon/Rockchip/Drivers/LcdGraphicsOutputDxe/LcdGraphicsOutputDxe.c
+@@ -522,10 +522,10 @@
+   if (Mode == NULL) {
+     DEBUG ((
+       DEBUG_WARN,
+-      "%a: No usable mode found! Falling back to lowest available.\n",
++      "%a: No usable mode found! Falling back to 1920x1080 (UniXNU Orange Pi 5: EDID flake must not leave GOP at 640x480).\n",
+       __func__
+       ));
+-    Mode = GetPredefinedDisplayMode (0);
++    Mode = GetPredefinedDisplayMode (DISPLAY_MODE_1920_1080_60);
+   }
+ 
+   CopyMem (&Instance->DisplayModes[0], Mode, sizeof (*Mode));

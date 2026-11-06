@@ -10,7 +10,7 @@
 #   GPU_RAIL_UV=850000 ./build.sh   # GPU 供电 0.85 V（微伏；默认 750000 = 0.75 V；upstream 的 Orange Pi 5 固件用 0.85 V）
 #
 # 不修改 upstream（edk2-rk3588）里的任何文件：平台 DSC/FDF 片段都在 UniXNUOrangePi5/ 里，
-# UniXNU 的包通过 PACKAGES_PATH 挂进来。路径来自 .env（见 .env.example）：UPSTREAM、UNIXNU、CLANG_BIN。
+# UniXNU 的包通过 PACKAGES_PATH 挂进来；对 upstream 文件的改动是 patches/*.patch（构建时打在 $BUILD_ROOT/overlay 的副本上）。路径来自 .env（见 .env.example）：UPSTREAM、UNIXNU、CLANG_BIN。
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -88,8 +88,27 @@ fi
 
 mkdir -p "$BUILD_ROOT/Build/Conf" "$OUT"
 
+# patches/*.patch 改的是 upstream 的 edk2-rockchip 里的文件（路径相对 edk2-rockchip，-p1）。upstream 不动：把被改模块的目录复制到
+# $BUILD_ROOT/overlay、打补丁，overlay 放在 PACKAGES_PATH 最前面，DSC 里同一个 INF 路径就先找到打过补丁的那份。
+# 补丁和 upstream 都没变时不重做（否则每次构建都会重编这些模块）。
+OVERLAY="$BUILD_ROOT/overlay"
+PATCHES=("$HERE"/patches/*.patch)
+OVERLAY_STAMP="$(cat "${PATCHES[@]}" | sha256sum | cut -d' ' -f1) $(git -C "$UPSTREAM/edk2-rockchip" rev-parse HEAD 2>/dev/null || echo unknown)"
+if [ ! -f "$OVERLAY/.stamp" ] || [ "$(cat "$OVERLAY/.stamp")" != "$OVERLAY_STAMP" ]; then
+  echo "== 上游补丁 -> $OVERLAY"
+  rm -rf "$OVERLAY"; mkdir -p "$OVERLAY"
+  for p in "${PATCHES[@]}"; do
+    sed -n 's#^+++ b/\(.*\)/[^/]*$#\1#p' "$p" | sort -u | while read -r dir; do
+      mkdir -p "$OVERLAY/$dir"
+      cp -rL "$UPSTREAM/edk2-rockchip/$dir/." "$OVERLAY/$dir/"
+    done
+    patch -p1 --binary --no-backup-if-mismatch -d "$OVERLAY" < "$p" >/dev/null
+  done
+  echo "$OVERLAY_STAMP" > "$OVERLAY/.stamp"
+fi
+
 export WORKSPACE="$BUILD_ROOT"
-export PACKAGES_PATH="$HERE:$UPSTREAM:$UPSTREAM/edk2:$UPSTREAM/edk2-non-osi:$UPSTREAM/edk2-platforms:$UPSTREAM/edk2-rockchip:$UPSTREAM/edk2-rockchip-non-osi:$UPSTREAM/devicetree:$UNIXNU/package:$UNIXNU/drivers/DarwinBoot"
+export PACKAGES_PATH="$OVERLAY:$HERE:$UPSTREAM:$UPSTREAM/edk2:$UPSTREAM/edk2-non-osi:$UPSTREAM/edk2-platforms:$UPSTREAM/edk2-rockchip:$UPSTREAM/edk2-rockchip-non-osi:$UPSTREAM/devicetree:$UNIXNU/package:$UNIXNU/drivers/DarwinBoot"
 export EDK_TOOLS_PATH="$UPSTREAM/edk2/BaseTools"
 export CONF_PATH="$BUILD_ROOT/Build/Conf"
 export PYTHON_COMMAND="${PYTHON_COMMAND:-python3}"
